@@ -15,12 +15,17 @@ import time
 import requests
 import paho.mqtt.client as mqtt
 
+import os
+import ssl
+
 # ──────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────
-MQTT_BROKER_HOST = "localhost"
-MQTT_BROKER_PORT = 1883
-BACKEND_URL = "http://localhost:8000"
+MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST", "localhost")
+MQTT_BROKER_PORT = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 DEFAULT_PATIENT_ID = "patient_01"
 
 # MQTT topic patterns
@@ -126,6 +131,10 @@ def main():
     print(f"[MQTT] Connecting to broker at {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}...")
     
     try:
+        if MQTT_USERNAME and MQTT_PASSWORD:
+            client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+            client.tls_set(tls_version=ssl.PROTOCOL_TLS)
+            
         client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, keepalive=60)
         client.loop_forever()
     except ConnectionRefusedError:

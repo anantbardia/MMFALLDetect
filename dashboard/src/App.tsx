@@ -33,6 +33,9 @@ interface DeviceInfo {
   seconds_since_seen: number;
 }
 
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const WS_URL = BASE_URL.replace(/^http/, 'ws');
+
 export default function App() {
   const [systemState, setSystemState] = useState<SystemState>('NORMAL');
   const [isPersonVisible, setIsPersonVisible] = useState(false);
@@ -50,7 +53,7 @@ export default function App() {
   // WebSocket connection
   useEffect(() => {
     const connect = () => {
-      const ws = new WebSocket('ws://localhost:8000/ws/live-feed/patient_01');
+      const ws = new WebSocket(`${WS_URL}/ws/live-feed/patient_01`);
       wsRef.current = ws;
 
       ws.onopen = () => setWsConnected(true);
@@ -144,7 +147,7 @@ export default function App() {
   useEffect(() => {
     const fetchDevices = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/v1/devices');
+        const res = await fetch(`${BASE_URL}/api/v1/devices`);
         const data = await res.json();
         setDevices(data.devices || []);
       } catch { /* backend offline */ }
@@ -156,7 +159,7 @@ export default function App() {
 
   const acknowledgeAlert = useCallback(async () => {
     try {
-      await fetch('http://localhost:8000/api/v1/alerts/patient_01/acknowledge', { method: 'POST' });
+      await fetch(`${BASE_URL}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
