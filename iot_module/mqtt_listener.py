@@ -25,7 +25,8 @@ MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST", "localhost")
 MQTT_BROKER_PORT = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+port = os.environ.get("PORT", "8000")
+BACKEND_URL = os.environ.get("BACKEND_URL", f"http://localhost:{port}")
 DEFAULT_PATIENT_ID = "patient_01"
 
 # MQTT topic patterns
