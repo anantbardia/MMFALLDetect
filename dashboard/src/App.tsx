@@ -35,6 +35,7 @@ interface DeviceInfo {
 
 const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 const WS_URL = BASE_URL.replace(/^http/, 'ws');
+const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'http://localhost:8001/video_feed';
 
 export default function App() {
   const [systemState, setSystemState] = useState<SystemState>('NORMAL');
@@ -249,7 +250,7 @@ export default function App() {
               </div>
               <div className="flex-1 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-center relative overflow-hidden">
                 <img 
-                  src="http://localhost:8001/video_feed" 
+                  src={CAMERA_URL} 
                   alt="" 
                   className="absolute inset-0 w-full h-full object-cover z-0 transition-opacity duration-300"
                   onError={(e) => {
