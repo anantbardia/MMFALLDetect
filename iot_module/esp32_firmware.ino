@@ -10,6 +10,7 @@
  */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <Wire.h>
 #include <math.h>
@@ -19,8 +20,10 @@
 // ─── Configuration ──────────────────────────────
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const char* MQTT_BROKER   = "192.168.1.100";  // Your PC's IP running Mosquitto
-const int   MQTT_PORT     = 1883;
+const char* MQTT_BROKER   = "09d10f909bf646a1aac33b698cc21cb0.s1.eu.hivemq.cloud";
+const int   MQTT_PORT     = 8883;
+const char* MQTT_USER     = "YOUR_HIVEMQ_USERNAME";
+const char* MQTT_PASS     = "YOUR_HIVEMQ_PASSWORD";
 const char* PATIENT_ID    = "patient_01";
 
 // ─── Pin Definitions ────────────────────────────
@@ -47,7 +50,7 @@ const char* PATIENT_ID    = "patient_01";
 #define VITALS_INTERVAL_MS   2000  // Send vitals every 2s
 
 // ─── Globals ────────────────────────────────────
-WiFiClient espClient;
+WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 MAX30105 particleSensor;
 
@@ -77,7 +80,7 @@ char topicAudio[64];
 void connectMQTT() {
     while (!mqttClient.connected()) {
         Serial.print("[MQTT] Connecting...");
-        if (mqttClient.connect("ESP32_FallPatch")) {
+        if (mqttClient.connect("ESP32_FallPatch", MQTT_USER, MQTT_PASS)) {
             Serial.println(" Connected!");
         } else {
             Serial.print(" Failed (rc=");
@@ -216,7 +219,8 @@ void setup() {
     Serial.println(" Connected!");
     Serial.println(WiFi.localIP());
     
-    // Init MQTT
+    // Init MQTT - Use insecure to skip certificate validation
+    espClient.setInsecure();
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
     
     pinMode(BATTERY_PIN, INPUT);
