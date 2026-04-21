@@ -253,14 +253,17 @@ class FallDetector:
         if state_changed or (current_time - self.last_event_time > 1.0):
             self.last_event_time = current_time
             
-            try:
-                requests.post(
-                    f"{self.backend_url}/api/v1/events/cv/{self.patient_id}", 
-                    json=payload, 
-                    timeout=1.0,
-                )
-            except Exception as e:
-                pass  # Don't spam console with connection errors
+            import threading
+            def _post():
+                try:
+                    requests.post(
+                        f"{self.backend_url}/api/v1/events/cv/{self.patient_id}", 
+                        json=payload, 
+                        timeout=1.0,
+                    )
+                except Exception as e:
+                    pass  # Don't spam console with connection errors
+            threading.Thread(target=_post, daemon=True).start()
 
 
 if __name__ == "__main__":

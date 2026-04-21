@@ -64,11 +64,13 @@ def generate_frames():
             time.sleep(0.01)
             continue
             
+        # Ensure fast processing resolution
+        frame = cv2.resize(frame, (640, 480))
         output_frame = detector.process_frame(frame)
         last_frame_id = frame_id
         
         # Fast JPEG Compression
-        ret, buffer = cv2.imencode('.jpg', output_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        ret, buffer = cv2.imencode('.jpg', output_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         if not ret:
             continue
             
