@@ -158,13 +158,39 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Alert sound
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+      audioRef.current.loop = true;
+    }
+  }, []);
+
   const acknowledgeAlert = useCallback(async () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
     try {
       await fetch(`${BASE_URL}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
   }, []);
+
+  const isEmergency = ['FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
+
+  useEffect(() => {
+    if (isEmergency && audioRef.current) {
+      // Browsers might block autoplay, catch any errors quietly
+      audioRef.current.play().catch(e => console.log('Audio play blocked:', e));
+    } else if (!isEmergency && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  }, [isEmergency]);
 
   const getStatusStyle = () => {
     switch (systemState) {
@@ -188,7 +214,6 @@ export default function App() {
   };
 
   const formatTime = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
-  const isEmergency = ['FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
 
   return (
     <div className="min-h-screen p-4 md:p-6 font-sans">

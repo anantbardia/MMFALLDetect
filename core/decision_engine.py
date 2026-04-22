@@ -146,7 +146,8 @@ class DecisionEngine:
             self.last_accel_spike_time = current_time
         
         # Normal movement resets inactivity timer
-        if smv > 1.2 or event.get("motion") == "normal":
+        # > 1.2G or < 0.8G indicates movement, preventing the timer from advancing.
+        if smv > 1.2 or smv < 0.8:
             self.last_movement_time = current_time
             
         # ── Vitals ──
