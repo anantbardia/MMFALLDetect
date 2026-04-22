@@ -33,9 +33,9 @@ interface DeviceInfo {
   seconds_since_seen: number;
 }
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const BASE_URL = 'https://tame-snails-feel.loca.lt';
 const WS_URL = BASE_URL.replace(/^http/, 'ws');
-const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'http://localhost:8001/video_feed';
+const CAMERA_URL = 'https://shieldcare-cam.loca.lt/video_feed';
 
 export default function App() {
   const [systemState, setSystemState] = useState<SystemState>('NORMAL');
