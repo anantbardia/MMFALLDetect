@@ -62,6 +62,14 @@ def get_engine(patient_id: str) -> DecisionEngine:
 
 
 # ──────────────────────────────────────────────
+# REST: General
+# ──────────────────────────────────────────────
+@app.get("/")
+async def root():
+    return {"status": "online", "message": "Multi-Modal Fall Detection API is running"}
+
+
+# ──────────────────────────────────────────────
 # WebSocket: Live Dashboard Feed
 # ──────────────────────────────────────────────
 @app.websocket("/ws/live-feed/{patient_id}")
