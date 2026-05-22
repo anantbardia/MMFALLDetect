@@ -336,29 +336,7 @@ export default function App() {
 
   const isEmergency = ['POSSIBLE_FALL', 'FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
 
-  // Trigger Native Desktop Notification
-  useEffect(() => {
-    if (isEmergency) {
-      if (lastNotifiedStateRef.current !== systemState && notificationPermission === 'granted') {
-        try {
-          const bodyText = `Immediate attention required! Status: ${systemState.replaceAll('_', ' ')} | Vitals: ${hasVitals ? `HR ${vitals.hr} BPM, SpO2 ${vitals.spo2}%` : 'No Wearable Connected'}`;
-          const notification = new Notification("🚨 SHIELDCARE: EMERGENCY ALERT!", {
-            body: bodyText,
-            requireInteraction: true,
-          });
-          
-          notification.onclick = () => {
-            window.focus();
-          };
-          lastNotifiedStateRef.current = systemState;
-        } catch (e) {
-          console.error('Failed to show notification:', e);
-        }
-      }
-    } else {
-      lastNotifiedStateRef.current = '';
-    }
-  }, [isEmergency, notificationPermission, systemState, vitals, hasVitals]);
+
 
   useEffect(() => {
     if (isEmergency) {
