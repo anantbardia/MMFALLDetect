@@ -44,6 +44,8 @@ class FallDetector:
         self.fall_start_time = 0
         self.last_event_time = 0
         self.frames_since_fall = 0
+        self.inference_counter = 0
+        self.last_prediction = (False, 0.0)
         
         # ── Velocity tracking (spec §5: rapid downward movement) ──
         self.prev_head_y = None
@@ -141,23 +143,29 @@ class FallDetector:
             
             # Predict using Neural Network if available
             if hasattr(self, 'ml_active') and self.ml_active:
-                row = []
-                for lm in landmarks.landmark:
-                    row.extend([lm.x, lm.y, lm.z, lm.visibility])
-                
-                # Transform features
-                X_vec = np.array(row).reshape(1, -1)
-                X_scaled = self.scaler.transform(X_vec)
-                
-                # Inference
-                preds = self.model.predict(X_scaled, verbose=0)[0]
-                pred_class = np.argmax(preds)
-                
-                # Presentation Mode: trigger fall alarm if Fall (Class 0) confidence is >= 50% or if it is the argmax class
-                is_fall = bool(pred_class == 0 or preds[0] >= 0.50)
-                confidence = float(preds[0]) if is_fall else float(preds[pred_class])
-                if is_fall and confidence < 0.50:
-                    confidence = 0.50
+                self.inference_counter += 1
+                if self.inference_counter % 3 != 0 and self.last_prediction[1] > 0.0:
+                    is_fall, confidence = self.last_prediction
+                else:
+                    row = []
+                    for lm in landmarks.landmark:
+                        row.extend([lm.x, lm.y, lm.z, lm.visibility])
+                    
+                    # Transform features
+                    X_vec = np.array(row).reshape(1, -1)
+                    X_scaled = self.scaler.transform(X_vec)
+                    
+                    # Inference
+                    preds = self.model.predict(X_scaled, verbose=0)[0]
+                    pred_class = np.argmax(preds)
+                    
+                    # Presentation Mode: trigger fall alarm if Fall (Class 0) confidence is >= 50% or if it is the argmax class
+                    is_fall = bool(pred_class == 0 or preds[0] >= 0.50)
+                    confidence = float(preds[0]) if is_fall else float(preds[pred_class])
+                    if is_fall and confidence < 0.50:
+                        confidence = 0.50
+                    
+                    self.last_prediction = (is_fall, confidence)
                 
                 if is_fall:
                     if not self.is_fallen:
