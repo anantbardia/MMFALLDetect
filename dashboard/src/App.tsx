@@ -414,6 +414,30 @@ export default function App() {
     }
   }, [isEmergency, startSirenSynth, stopSirenSynth]);
 
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        const tempCtx = new AudioCtxClass();
+        if (tempCtx.state === 'suspended') {
+          tempCtx.resume();
+        }
+        const osc = tempCtx.createOscillator();
+        const gain = tempCtx.createGain();
+        gain.gain.setValueAtTime(0.0001, tempCtx.currentTime);
+        osc.connect(gain);
+        gain.connect(tempCtx.destination);
+        osc.start();
+        osc.stop(tempCtx.currentTime + 0.05);
+      } catch (e) {
+        console.log('Document-click audio warm up failed:', e);
+      }
+      document.removeEventListener('click', unlockAudio);
+    };
+    document.addEventListener('click', unlockAudio);
+    return () => document.removeEventListener('click', unlockAudio);
+  }, []);
+
   const getStatusStyle = () => {
     switch (systemState) {
       case 'NORMAL': return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30';
@@ -440,32 +464,6 @@ export default function App() {
   return (
     <div className="min-h-screen p-4 md:p-6 font-sans">
       <div className="max-w-[1600px] mx-auto space-y-5">
-
-        {/* ═══ Notification / Autoplay Consent Banner ═══ */}
-        {notificationPermission !== 'granted' && (
-          <div className="bg-indigo-950/45 border border-indigo-500/30 text-indigo-200 px-5 py-3.5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 backdrop-blur-md transition-all shadow-lg">
-            <div className="flex items-center gap-3">
-              <span className="flex h-3 w-3 relative shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-              </span>
-              <p className="text-sm font-medium text-indigo-300 text-center sm:text-left">
-                {notificationPermission === 'denied' 
-                  ? "⚠️ Notifications are blocked by your browser settings. Please enable them in your address bar to receive emergency alerts."
-                  : "🔔 Enable Desktop Notifications and Audio Alerts to guarantee instant updates during emergencies."
-                }
-              </p>
-            </div>
-            {notificationPermission !== 'denied' && (
-              <button 
-                onClick={requestNotificationPermission} 
-                className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md hover:scale-[1.02] shrink-0"
-              >
-                Enable Notifications
-              </button>
-            )}
-          </div>
-        )}
 
         {/* ═══ Header ═══ */}
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -494,21 +492,28 @@ export default function App() {
           </div>
         </header>
 
-        {/* ═══ Emergency Banner ═══ */}
+        {/* ═══ Flashing High-Urgency Fall Alert Banner ═══ */}
         {isEmergency && (
-          <div className="bg-rose-500/10 border border-rose-500/40 text-rose-200 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-pulse">
-            <div className="flex items-center gap-4">
-              <ShieldAlert className="w-10 h-10 text-rose-500 shrink-0" />
+          <div className="bg-red-600 border border-red-500 text-white p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5 animate-pulse shadow-[0_0_30px_rgba(220,38,38,0.5)]">
+            <div className="flex items-center gap-4 text-center md:text-left">
+              <div className="bg-white/20 p-3 rounded-full animate-bounce">
+                <ShieldAlert className="w-12 h-12 text-white" />
+              </div>
               <div>
-                <h3 className="text-xl font-bold text-rose-400">EMERGENCY DETECTED</h3>
-                <p className="text-sm text-rose-300/80 mt-1">
-                  Fall confirmed. HR: {hasVitals ? `${vitals.hr} BPM` : '--'} | SpO₂: {hasVitals ? `${vitals.spo2}%` : '--'} | Audio: {isAudioDistress ? 'Distress' : 'Quiet'} | Score: {(fallScore * 100).toFixed(0)}%
+                <h2 className="text-3xl font-extrabold tracking-wider animate-pulse">⚠️ CRITICAL: FALL DETECTED!</h2>
+                <p className="text-base text-red-100 font-medium mt-1">
+                  Emergency state triggered! Camera confidence: {(fallScore * 100).toFixed(0)}%. Vitals: {hasVitals ? `Heart Rate ${vitals.hr} BPM | SpO₂ ${vitals.spo2}%` : 'Wearable Standby'}.
                 </p>
               </div>
             </div>
-            <button onClick={acknowledgeAlert} className="bg-rose-500 hover:bg-rose-600 text-white px-6 py-2.5 rounded-xl font-medium transition-all hover:scale-105 shrink-0">
-              Acknowledge & Reset
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={acknowledgeAlert} 
+                className="bg-white hover:bg-red-50 text-red-600 font-bold px-8 py-3 rounded-xl transition-all shadow-lg active:scale-95 shrink-0"
+              >
+                Acknowledge & Clear Alarm
+              </button>
+            </div>
           </div>
         )}
 
