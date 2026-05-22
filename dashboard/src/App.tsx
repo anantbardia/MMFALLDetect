@@ -50,10 +50,12 @@ export default function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const [isTestingSiren, setIsTestingSiren] = useState(false);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   // Reference for stable WebSocket subscriptions without reconnection spikes
   const hasVitalsRef = useRef(hasVitals);
-  const hasShownNotificationRef = useRef(false);
+  const lastNotifiedStateRef = useRef<string>('');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
   );
@@ -129,6 +131,7 @@ export default function App() {
               // Trigger beep warning on sudden fluctuations
               if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
                 lastBeepTimeRef.current = Date.now();
+                playBeepSynth();
                 if (beepAudioRef.current) {
                   beepAudioRef.current.play().catch(e => console.log('Beep blocked:', e));
                 }
@@ -175,6 +178,7 @@ export default function App() {
               // Trigger beep warning on sudden fluctuations
               if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
                 lastBeepTimeRef.current = Date.now();
+                playBeepSynth();
                 if (beepAudioRef.current) {
                   beepAudioRef.current.play().catch(e => console.log('Beep blocked:', e));
                 }
@@ -222,6 +226,99 @@ export default function App() {
   const beepAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastBeepTimeRef = useRef<number>(0);
 
+  // Web Audio API Synthesizers (100% network/CORS-independent)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const synthNodesRef = useRef<{ osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null>(null);
+
+  const startSirenSynth = useCallback(() => {
+    if (synthNodesRef.current) return;
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      audioCtxRef.current = ctx;
+
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(450, ctx.currentTime);
+
+      lfo.frequency.value = 1.8; // Oscillation rate (1.8 wails per sec)
+      lfoGain.gain.value = 180; // Pitch sweep range (450 +/- 180 Hz)
+
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+
+      lfo.start();
+      osc.start();
+
+      synthNodesRef.current = { osc, lfo, gain: gainNode };
+      setAudioUnlocked(true);
+    } catch (e) {
+      console.error('Siren Synth failed:', e);
+    }
+  }, []);
+
+  const stopSirenSynth = useCallback(() => {
+    try {
+      if (synthNodesRef.current) {
+        const { osc, lfo } = synthNodesRef.current;
+        osc.stop();
+        lfo.stop();
+        osc.disconnect();
+        lfo.disconnect();
+        synthNodesRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+        audioCtxRef.current = null;
+      }
+    } catch (e) {
+      console.error('Siren Synth stop failed:', e);
+    }
+  }, []);
+
+  const playBeepSynth = useCallback(() => {
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // High pitch warning beep
+
+      osc.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15); // Fade out quickly
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+      
+      setAudioUnlocked(true);
+    } catch (e) {
+      console.log('Beep Synth failed:', e);
+    }
+  }, []);
+
+  const triggerSoundTest = useCallback(() => {
+    setIsTestingSiren(true);
+    startSirenSynth();
+    setTimeout(() => {
+      stopSirenSynth();
+      setIsTestingSiren(false);
+    }, 1500);
+  }, [startSirenSynth, stopSirenSynth]);
+
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
@@ -237,10 +334,23 @@ export default function App() {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
       
-      // Unlock the audio context to bypass autoplay restrictions
+      // Warm up / unlock the Web Audio API AudioContext
+      try {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        const tempCtx = new AudioCtxClass();
+        if (tempCtx.state === 'suspended') {
+          await tempCtx.resume();
+        }
+        tempCtx.close();
+        setAudioUnlocked(true);
+      } catch (e) {
+        console.log('AudioContext unlock failed:', e);
+      }
+      
+      // Also unlock the fallback HTML Audio elements
       if (audioRef.current) {
         const origVolume = audioRef.current.volume;
-        audioRef.current.volume = 0.001; // Silent beep
+        audioRef.current.volume = 0.001;
         audioRef.current.play()
           .then(() => {
             setTimeout(() => {
@@ -253,26 +363,11 @@ export default function App() {
           })
           .catch(e => console.log('Audio autoplay unlock failed:', e));
       }
-      
-      if (beepAudioRef.current) {
-        const origBeepVolume = beepAudioRef.current.volume;
-        beepAudioRef.current.volume = 0.001; // Silent beep
-        beepAudioRef.current.play()
-          .then(() => {
-            setTimeout(() => {
-              if (beepAudioRef.current) {
-                beepAudioRef.current.pause();
-                beepAudioRef.current.currentTime = 0;
-                beepAudioRef.current.volume = origBeepVolume;
-              }
-            }, 100);
-          })
-          .catch(e => console.log('Beep autoplay unlock failed:', e));
-      }
     }
   }, []);
 
   const acknowledgeAlert = useCallback(async () => {
+    stopSirenSynth();
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -282,16 +377,16 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-  }, [baseUrl]);
+  }, [baseUrl, stopSirenSynth]);
 
   const isEmergency = ['POSSIBLE_FALL', 'FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
 
   // Trigger Native Desktop Notification
   useEffect(() => {
     if (isEmergency) {
-      if (!hasShownNotificationRef.current && notificationPermission === 'granted') {
+      if (lastNotifiedStateRef.current !== systemState && notificationPermission === 'granted') {
         try {
-          const bodyText = `Immediate attention required! Status: ${systemState} | Vitals: ${hasVitals ? `HR ${vitals.hr} BPM, SpO2 ${vitals.spo2}%` : 'No Wearable Connected'}`;
+          const bodyText = `Immediate attention required! Status: ${systemState.replaceAll('_', ' ')} | Vitals: ${hasVitals ? `HR ${vitals.hr} BPM, SpO2 ${vitals.spo2}%` : 'No Wearable Connected'}`;
           const notification = new Notification("🚨 SHIELDCARE: EMERGENCY ALERT!", {
             body: bodyText,
             requireInteraction: true,
@@ -300,25 +395,30 @@ export default function App() {
           notification.onclick = () => {
             window.focus();
           };
-          hasShownNotificationRef.current = true;
+          lastNotifiedStateRef.current = systemState;
         } catch (e) {
           console.error('Failed to show notification:', e);
         }
       }
     } else {
-      hasShownNotificationRef.current = false;
+      lastNotifiedStateRef.current = '';
     }
   }, [isEmergency, notificationPermission, systemState, vitals, hasVitals]);
 
   useEffect(() => {
-    if (isEmergency && audioRef.current) {
-      // Browsers might block autoplay, catch any errors quietly
-      audioRef.current.play().catch(e => console.log('Audio play blocked:', e));
-    } else if (!isEmergency && audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    if (isEmergency) {
+      startSirenSynth();
+      if (audioRef.current) {
+        audioRef.current.play().catch(e => console.log('Audio play blocked:', e));
+      }
+    } else {
+      stopSirenSynth();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
     }
-  }, [isEmergency]);
+  }, [isEmergency, startSirenSynth, stopSirenSynth]);
 
   const getStatusStyle = () => {
     switch (systemState) {
@@ -382,6 +482,13 @@ export default function App() {
             <p className="text-slate-500 text-sm mt-1">Intelligent Multi-Modal Fall Detection & Health Monitoring</p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={triggerSoundTest}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full border font-semibold text-xs tracking-wide transition-all shadow-md active:scale-95 shrink-0 ${isTestingSiren ? 'bg-amber-500 text-white border-amber-400 animate-pulse' : 'bg-slate-900/60 hover:bg-slate-800/80 text-slate-200 border-slate-700/60 hover:scale-[1.02]'}`}
+            >
+              {isTestingSiren ? <Volume2 className="w-4 h-4 text-white" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+              {isTestingSiren ? "SIREN ACTIVE..." : "TEST ALARM SOUND"}
+            </button>
             <div className={`px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-1.5 ${wsConnected ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10'}`}>
               {wsConnected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
               {wsConnected ? 'LIVE' : 'OFFLINE'}
