@@ -53,10 +53,6 @@ export default function App() {
 
   // Reference for stable WebSocket subscriptions without reconnection spikes
   const hasVitalsRef = useRef(hasVitals);
-  const lastNotifiedStateRef = useRef<string>('');
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
-  );
 
   const [cameraUrl, setCameraUrl] = useState(() => {
     return localStorage.getItem('custom_camera_url') || CAMERA_URL;
@@ -324,41 +320,6 @@ export default function App() {
     }
   }, []);
 
-  const requestNotificationPermission = useCallback(async () => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-      
-      // Warm up / unlock the Web Audio API AudioContext
-      try {
-        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-        const tempCtx = new AudioCtxClass();
-        if (tempCtx.state === 'suspended') {
-          await tempCtx.resume();
-        }
-        tempCtx.close();
-      } catch (e) {
-        console.log('AudioContext unlock failed:', e);
-      }
-      
-      // Also unlock the fallback HTML Audio elements
-      if (audioRef.current) {
-        const origVolume = audioRef.current.volume;
-        audioRef.current.volume = 0.001;
-        audioRef.current.play()
-          .then(() => {
-            setTimeout(() => {
-              if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.currentTime = 0;
-                audioRef.current.volume = origVolume;
-              }
-            }, 100);
-          })
-          .catch(e => console.log('Audio autoplay unlock failed:', e));
-      }
-    }
-  }, []);
 
   const acknowledgeAlert = useCallback(async () => {
     stopSirenSynth();
