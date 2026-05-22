@@ -153,9 +153,11 @@ class FallDetector:
                 preds = self.model.predict(X_scaled, verbose=0)[0]
                 pred_class = np.argmax(preds)
                 
-                # Assuming Class 0 is Fall (most prevalent in Kaggle datasets of this type)
-                is_fall = bool(pred_class == 0)
+                # Presentation Mode: trigger fall alarm if Fall (Class 0) confidence is >= 50% or if it is the argmax class
+                is_fall = bool(pred_class == 0 or preds[0] >= 0.50)
                 confidence = float(preds[0]) if is_fall else float(preds[pred_class])
+                if is_fall and confidence < 0.50:
+                    confidence = 0.50
                 
                 if is_fall:
                     if not self.is_fallen:
