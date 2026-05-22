@@ -29,8 +29,8 @@ class FallDetector:
         # ── MediaPipe Setup ──
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_detection_confidence=0.3,
+            min_tracking_confidence=0.3,
             model_complexity=0,
         )
         self.mp_drawing = mp.solutions.drawing_utils
