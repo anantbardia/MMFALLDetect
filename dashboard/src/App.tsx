@@ -34,7 +34,6 @@ interface DeviceInfo {
 }
 
 const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-const WS_URL = BASE_URL.replace(/^http/, 'ws');
 const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'http://localhost:8001/video_feed';
 
 export default function App() {
@@ -51,7 +50,6 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [isTestingSiren, setIsTestingSiren] = useState(false);
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   // Reference for stable WebSocket subscriptions without reconnection spikes
   const hasVitalsRef = useRef(hasVitals);
@@ -260,7 +258,6 @@ export default function App() {
       osc.start();
 
       synthNodesRef.current = { osc, lfo, gain: gainNode };
-      setAudioUnlocked(true);
     } catch (e) {
       console.error('Siren Synth failed:', e);
     }
@@ -303,8 +300,6 @@ export default function App() {
 
       osc.start();
       osc.stop(ctx.currentTime + 0.15);
-      
-      setAudioUnlocked(true);
     } catch (e) {
       console.log('Beep Synth failed:', e);
     }
@@ -342,7 +337,6 @@ export default function App() {
           await tempCtx.resume();
         }
         tempCtx.close();
-        setAudioUnlocked(true);
       } catch (e) {
         console.log('AudioContext unlock failed:', e);
       }
