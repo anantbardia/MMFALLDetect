@@ -206,7 +206,7 @@ def video_feed_proxy():
     """Proxy requests to the local camera stream server on port 8001."""
     def stream_generator():
         try:
-            r = requests.get("http://localhost:8001/video_feed", stream=True, timeout=5)
+            r = requests.get("http://localhost:8001/video_feed", stream=True, timeout=None)
             for chunk in r.iter_content(chunk_size=4096):
                 yield chunk
         except Exception as e:
