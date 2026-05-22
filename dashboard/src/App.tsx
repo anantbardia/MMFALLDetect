@@ -112,13 +112,28 @@ export default function App() {
 
             if (msg.motion && (msg.motion.ax !== 0 || msg.motion.ay !== 0 || msg.motion.az !== 0)) {
               setHasMotionData(true);
+              
+              // Calculate or read SMV to check for fluctuations
+              const ax = msg.motion.ax;
+              const ay = msg.motion.ay;
+              const az = msg.motion.az;
+              const smv = msg.motion.smv ?? Math.sqrt(ax * ax + ay * ay + az * az);
+              
+              // Trigger beep warning on sudden fluctuations
+              if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
+                lastBeepTimeRef.current = Date.now();
+                if (beepAudioRef.current) {
+                  beepAudioRef.current.play().catch(e => console.log('Beep blocked:', e));
+                }
+              }
+
               setMotionData(prev => {
                 const point: SensorData = {
                   time: new Date().toLocaleTimeString([], { hour12: false }),
-                  ax: msg.motion.ax,
-                  ay: msg.motion.ay,
-                  az: msg.motion.az,
-                  smv: msg.motion.smv ?? 1.0,
+                  ax: ax,
+                  ay: ay,
+                  az: az,
+                  smv: smv,
                 };
                 const updated = [...prev, point];
                 return updated.length > 40 ? updated.slice(-40) : updated;
@@ -144,13 +159,27 @@ export default function App() {
             if (d.distress_sound_detected !== undefined) setIsAudioDistress(d.distress_sound_detected);
             if (d.ax !== undefined || d.ay !== undefined || d.az !== undefined) {
               setHasMotionData(true);
+              
+              const ax = d.ax ?? 0;
+              const ay = d.ay ?? 0;
+              const az = d.az ?? 0;
+              const smv = msg.smv ?? Math.sqrt(ax * ax + ay * ay + az * az);
+
+              // Trigger beep warning on sudden fluctuations
+              if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
+                lastBeepTimeRef.current = Date.now();
+                if (beepAudioRef.current) {
+                  beepAudioRef.current.play().catch(e => console.log('Beep blocked:', e));
+                }
+              }
+
               setMotionData(prev => {
                 const point: SensorData = {
                   time: new Date().toLocaleTimeString([], { hour12: false }),
-                  ax: d.ax ?? 0,
-                  ay: d.ay ?? 0,
-                  az: d.az ?? 0,
-                  smv: msg.smv ?? 1.0,
+                  ax: ax,
+                  ay: ay,
+                  az: az,
+                  smv: smv,
                 };
                 const updated = [...prev, point];
                 return updated.length > 40 ? updated.slice(-40) : updated;
@@ -181,13 +210,18 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Alert sound
+  // Alert sound and warning beep sound
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const beepAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastBeepTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!audioRef.current) {
       audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
       audioRef.current.loop = true;
+    }
+    if (!beepAudioRef.current) {
+      beepAudioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
     }
   }, []);
 
@@ -212,6 +246,22 @@ export default function App() {
           })
           .catch(e => console.log('Audio autoplay unlock failed:', e));
       }
+      
+      if (beepAudioRef.current) {
+        const origBeepVolume = beepAudioRef.current.volume;
+        beepAudioRef.current.volume = 0.001; // Silent beep
+        beepAudioRef.current.play()
+          .then(() => {
+            setTimeout(() => {
+              if (beepAudioRef.current) {
+                beepAudioRef.current.pause();
+                beepAudioRef.current.currentTime = 0;
+                beepAudioRef.current.volume = origBeepVolume;
+              }
+            }, 100);
+          })
+          .catch(e => console.log('Beep autoplay unlock failed:', e));
+      }
     }
   }, []);
 
@@ -227,7 +277,7 @@ export default function App() {
     }
   }, []);
 
-  const isEmergency = ['FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
+  const isEmergency = ['POSSIBLE_FALL', 'FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
 
   // Trigger Native Desktop Notification
   useEffect(() => {
