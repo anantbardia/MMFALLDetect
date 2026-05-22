@@ -198,6 +198,22 @@ async def broadcast_event(patient_id: str, message: dict):
             active_connections[patient_id].remove(dc)
 
 
+import requests
+from fastapi.responses import StreamingResponse
+
+@app.get("/video_feed")
+def video_feed_proxy():
+    """Proxy requests to the local camera stream server on port 8001."""
+    def stream_generator():
+        try:
+            r = requests.get("http://localhost:8001/video_feed", stream=True, timeout=5)
+            for chunk in r.iter_content(chunk_size=4096):
+                yield chunk
+        except Exception as e:
+            print(f"Proxy error: {e}")
+    return StreamingResponse(stream_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("api_server:app", host="0.0.0.0", port=port, reload=False)

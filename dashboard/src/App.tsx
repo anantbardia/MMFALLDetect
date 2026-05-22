@@ -61,23 +61,30 @@ export default function App() {
   const [cameraUrl, setCameraUrl] = useState(() => {
     return localStorage.getItem('custom_camera_url') || CAMERA_URL;
   });
+  const [baseUrl, setBaseUrl] = useState(() => {
+    return localStorage.getItem('custom_backend_url') || BASE_URL;
+  });
   const [showCameraSettings, setShowCameraSettings] = useState(false);
   const [customCameraUrl, setCustomCameraUrl] = useState(cameraUrl);
+  const [customBaseUrl, setCustomBaseUrl] = useState(baseUrl);
 
-  const saveCameraUrl = useCallback(() => {
+  const wsUrl = baseUrl.replace(/^http/, 'ws');
+
+  const saveSettings = useCallback(() => {
     localStorage.setItem('custom_camera_url', customCameraUrl);
+    localStorage.setItem('custom_backend_url', customBaseUrl);
     setCameraUrl(customCameraUrl);
+    setBaseUrl(customBaseUrl);
     setShowCameraSettings(false);
-  }, [customCameraUrl]);
+  }, [customCameraUrl, customBaseUrl]);
 
   useEffect(() => {
     hasVitalsRef.current = hasVitals;
   }, [hasVitals]);
 
-  // WebSocket connection
   useEffect(() => {
     const connect = () => {
-      const ws = new WebSocket(`${WS_URL}/ws/live-feed/patient_01`);
+      const ws = new WebSocket(`${wsUrl}/ws/live-feed/patient_01`);
       wsRef.current = ws;
 
       ws.onopen = () => setWsConnected(true);
@@ -194,13 +201,13 @@ export default function App() {
 
     connect();
     return () => wsRef.current?.close();
-  }, []);
+  }, [wsUrl]);
 
   // Fetch device health periodically
   useEffect(() => {
     const fetchDevices = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/v1/devices`);
+        const res = await fetch(`${baseUrl}/api/v1/devices`);
         const data = await res.json();
         setDevices(data.devices || []);
       } catch { /* backend offline */ }
@@ -208,7 +215,7 @@ export default function App() {
     fetchDevices();
     const interval = setInterval(fetchDevices, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [baseUrl]);
 
   // Alert sound and warning beep sound
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -271,11 +278,11 @@ export default function App() {
       audioRef.current.currentTime = 0;
     }
     try {
-      await fetch(`${BASE_URL}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [baseUrl]);
 
   const isEmergency = ['POSSIBLE_FALL', 'FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
 
@@ -433,20 +440,37 @@ export default function App() {
               </div>
               
               {showCameraSettings && (
-                <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl mb-3 flex items-center gap-2 animate-fadeIn">
-                  <input 
-                    type="text" 
-                    value={customCameraUrl} 
-                    onChange={(e) => setCustomCameraUrl(e.target.value)} 
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-all font-mono"
-                    placeholder="Enter camera stream URL..."
-                  />
-                  <button 
-                    onClick={saveCameraUrl} 
-                    className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                  >
-                    <Save className="w-3.5 h-3.5" /> Save
-                  </button>
+                <div className="bg-slate-900/95 border border-slate-800 p-4 rounded-xl mb-3 flex flex-col gap-3 animate-fadeIn shadow-2xl">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Camera Feed URL</span>
+                      <input 
+                        type="text" 
+                        value={customCameraUrl} 
+                        onChange={(e) => setCustomCameraUrl(e.target.value)} 
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                        placeholder="e.g. http://localhost:8001/video_feed"
+                      />
+                    </div>
+                    <div className="flex-1 flex flex-col gap-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Backend API URL</span>
+                      <input 
+                        type="text" 
+                        value={customBaseUrl} 
+                        onChange={(e) => setCustomBaseUrl(e.target.value)} 
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                        placeholder="e.g. http://localhost:8000"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button 
+                      onClick={saveSettings} 
+                      className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md hover:scale-[1.02]"
+                    >
+                      <Save className="w-3.5 h-3.5" /> Save Configuration
+                    </button>
+                  </div>
                 </div>
               )}
 
