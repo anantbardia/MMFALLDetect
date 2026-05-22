@@ -3,7 +3,7 @@ import {
   Activity, Heart, Thermometer, ShieldAlert, CheckCircle2,
   AlertTriangle, UserX, UserCheck, Wifi, WifiOff,
   BatteryFull, BatteryLow, Clock, Zap, History, Cpu,
-  RefreshCcw, Volume2, VolumeX
+  RefreshCcw, Volume2, VolumeX, Settings, Save
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -51,6 +51,29 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Reference for stable WebSocket subscriptions without reconnection spikes
+  const hasVitalsRef = useRef(hasVitals);
+  const hasShownNotificationRef = useRef(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
+  );
+
+  const [cameraUrl, setCameraUrl] = useState(() => {
+    return localStorage.getItem('custom_camera_url') || CAMERA_URL;
+  });
+  const [showCameraSettings, setShowCameraSettings] = useState(false);
+  const [customCameraUrl, setCustomCameraUrl] = useState(cameraUrl);
+
+  const saveCameraUrl = useCallback(() => {
+    localStorage.setItem('custom_camera_url', customCameraUrl);
+    setCameraUrl(customCameraUrl);
+    setShowCameraSettings(false);
+  }, [customCameraUrl]);
+
+  useEffect(() => {
+    hasVitalsRef.current = hasVitals;
+  }, [hasVitals]);
+
   // WebSocket connection
   useEffect(() => {
     const connect = () => {
@@ -74,12 +97,12 @@ export default function App() {
           // Heartbeat snapshot from backend
           if (msg.type === 'heartbeat') {
             if (msg.is_person_visible !== undefined) setIsPersonVisible(msg.is_person_visible);
-            if (msg.vitals && (msg.vitals.heart_rate !== 75 || msg.vitals.spo2 !== 98 || hasVitals)) {
+            if (msg.vitals && (msg.vitals.heart_rate !== 75 || msg.vitals.spo2 !== 98 || hasVitalsRef.current)) {
               // Only update vitals if we've received real sensor data
               if (msg.vitals.heart_rate !== 75 || msg.vitals.spo2 !== 98) {
                 setHasVitals(true);
               }
-              if (hasVitals) {
+              if (hasVitalsRef.current) {
                 setVitals({ hr: msg.vitals.heart_rate, spo2: msg.vitals.spo2 });
               }
             }
@@ -142,7 +165,7 @@ export default function App() {
 
     connect();
     return () => wsRef.current?.close();
-  }, [hasVitals]);
+  }, []);
 
   // Fetch device health periodically
   useEffect(() => {
@@ -168,6 +191,30 @@ export default function App() {
     }
   }, []);
 
+  const requestNotificationPermission = useCallback(async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      
+      // Unlock the audio context to bypass autoplay restrictions
+      if (audioRef.current) {
+        const origVolume = audioRef.current.volume;
+        audioRef.current.volume = 0.001; // Silent beep
+        audioRef.current.play()
+          .then(() => {
+            setTimeout(() => {
+              if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+                audioRef.current.volume = origVolume;
+              }
+            }, 100);
+          })
+          .catch(e => console.log('Audio autoplay unlock failed:', e));
+      }
+    }
+  }, []);
+
   const acknowledgeAlert = useCallback(async () => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -181,6 +228,30 @@ export default function App() {
   }, []);
 
   const isEmergency = ['FALL_CONFIRMED', 'MEDICAL_ALERT', 'ALERT_SENT'].includes(systemState);
+
+  // Trigger Native Desktop Notification
+  useEffect(() => {
+    if (isEmergency) {
+      if (!hasShownNotificationRef.current && notificationPermission === 'granted') {
+        try {
+          const bodyText = `Immediate attention required! Status: ${systemState} | Vitals: ${hasVitals ? `HR ${vitals.hr} BPM, SpO2 ${vitals.spo2}%` : 'No Wearable Connected'}`;
+          const notification = new Notification("🚨 SHIELDCARE: EMERGENCY ALERT!", {
+            body: bodyText,
+            requireInteraction: true,
+          });
+          
+          notification.onclick = () => {
+            window.focus();
+          };
+          hasShownNotificationRef.current = true;
+        } catch (e) {
+          console.error('Failed to show notification:', e);
+        }
+      }
+    } else {
+      hasShownNotificationRef.current = false;
+    }
+  }, [isEmergency, notificationPermission, systemState, vitals, hasVitals]);
 
   useEffect(() => {
     if (isEmergency && audioRef.current) {
@@ -218,6 +289,32 @@ export default function App() {
   return (
     <div className="min-h-screen p-4 md:p-6 font-sans">
       <div className="max-w-[1600px] mx-auto space-y-5">
+
+        {/* ═══ Notification / Autoplay Consent Banner ═══ */}
+        {notificationPermission !== 'granted' && (
+          <div className="bg-indigo-950/45 border border-indigo-500/30 text-indigo-200 px-5 py-3.5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 backdrop-blur-md transition-all shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="flex h-3 w-3 relative shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+              </span>
+              <p className="text-sm font-medium text-indigo-300 text-center sm:text-left">
+                {notificationPermission === 'denied' 
+                  ? "⚠️ Notifications are blocked by your browser settings. Please enable them in your address bar to receive emergency alerts."
+                  : "🔔 Enable Desktop Notifications and Audio Alerts to guarantee instant updates during emergencies."
+                }
+              </p>
+            </div>
+            {notificationPermission !== 'denied' && (
+              <button 
+                onClick={requestNotificationPermission} 
+                className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-md hover:scale-[1.02] shrink-0"
+              >
+                Enable Notifications
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ═══ Header ═══ */}
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -266,16 +363,46 @@ export default function App() {
             {/* Camera Feed */}
             <div className="glass-panel p-5 h-[420px] flex flex-col">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold flex items-center gap-2 text-slate-200">
-                  <Activity className="w-4 h-4 text-indigo-400" /> Live Camera Feed
-                </h2>
-                <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${isPersonVisible ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-500 bg-slate-800/50'}`}>
-                  {isPersonVisible ? <><UserCheck className="w-3.5 h-3.5" /> Person Tracked</> : <><UserX className="w-3.5 h-3.5" /> No Person</>}
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                    <Activity className="w-4 h-4 text-indigo-400" /> Live Camera Feed
+                  </h2>
+                  <button 
+                    onClick={() => setShowCameraSettings(!showCameraSettings)} 
+                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                    title="Camera Feed Settings"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${isPersonVisible ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-500 bg-slate-800/50'}`}>
+                    {isPersonVisible ? <><UserCheck className="w-3.5 h-3.5" /> Person Tracked</> : <><UserX className="w-3.5 h-3.5" /> No Person</>}
+                  </div>
                 </div>
               </div>
+              
+              {showCameraSettings && (
+                <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl mb-3 flex items-center gap-2 animate-fadeIn">
+                  <input 
+                    type="text" 
+                    value={customCameraUrl} 
+                    onChange={(e) => setCustomCameraUrl(e.target.value)} 
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                    placeholder="Enter camera stream URL..."
+                  />
+                  <button 
+                    onClick={saveCameraUrl} 
+                    className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
+                  >
+                    <Save className="w-3.5 h-3.5" /> Save
+                  </button>
+                </div>
+              )}
+
               <div className="flex-1 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-center relative overflow-hidden">
                 <img 
-                  src={CAMERA_URL} 
+                  src={cameraUrl} 
                   alt="" 
                   className="absolute inset-0 w-full h-full object-cover z-0 transition-opacity duration-300"
                   onError={(e) => {

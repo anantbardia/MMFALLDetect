@@ -180,6 +180,7 @@ class FallDetector:
 
     def process_frame(self, frame):
         """Process a single frame through the full CV pipeline."""
+        previous_is_fallen = self.is_fallen
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image.flags.writeable = False
         
@@ -236,19 +237,20 @@ class FallDetector:
                 cv2.putText(image, f"V.vel: {vel:.2f}", (image_width - 200, 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, vel_color, 1, cv2.LINE_AA)
                 
-            self.send_event(event_payload)
+            self.send_event(event_payload, previous_is_fallen)
         else:
             # No person detected — still send event so backend knows
             self.prev_head_y = None
             self.prev_landmarks = None
-            self.send_event(event_payload)
+            self.is_fallen = False
+            self.send_event(event_payload, previous_is_fallen)
                 
         return image
         
-    def send_event(self, payload):
+    def send_event(self, payload, previous_is_fallen):
         """Send CV event to backend. Throttled to avoid spam."""
         current_time = time.time()
-        state_changed = (payload["fall_predicted"] != self.is_fallen)
+        state_changed = (payload["fall_predicted"] != previous_is_fallen)
         
         if state_changed or (current_time - self.last_event_time > 1.0):
             self.last_event_time = current_time
