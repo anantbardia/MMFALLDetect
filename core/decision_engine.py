@@ -231,7 +231,14 @@ class DecisionEngine:
             if self.is_person_visible:
                 # Person visible: use CV + wearable fusion
                 time_diff = abs(self.last_cv_fall_time - self.last_accel_spike_time)
-                if fall_score >= self.FALL_SCORE_THRESHOLD:
+                
+                # Presentation & Live Demo Rule: Confirm immediately if camera detects a fall with >= 50% confidence
+                if self.last_cv_confidence >= 0.50 and (current_time - self.last_cv_fall_time) < 3.0:
+                    self.state_manager.transition_to(
+                        SystemState.FALL_CONFIRMED,
+                        f"Camera-only fall confirmed (Confidence={self.last_cv_confidence:.0%})"
+                    )
+                elif fall_score >= self.FALL_SCORE_THRESHOLD:
                     self.state_manager.transition_to(
                         SystemState.FALL_CONFIRMED, 
                         f"Weighted score={fall_score:.2f} exceeded threshold"
