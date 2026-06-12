@@ -48,7 +48,11 @@ export default function App() {
   const [eventHistory, setEventHistory] = useState<EventRecord[]>([]);
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
+  const [cvLive, setCvLive] = useState(false);
+  const [iotLive, setIotLive] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const cvTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const iotTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isTestingSiren, setIsTestingSiren] = useState(false);
 
   // Reference for stable WebSocket subscriptions without reconnection spikes
@@ -93,9 +97,30 @@ export default function App() {
         try {
           const msg = JSON.parse(event.data);
 
-          if (msg.system_state) setSystemState(msg.system_state);
-          if (msg.state) setSystemState(msg.state);
+          if (msg.system_state || msg.state) {
+            const newState = msg.system_state || msg.state;
+            setSystemState(prev => {
+              if (prev === 'FALL_CONFIRMED' && newState !== 'FALL_CONFIRMED') {
+                return prev; // Latch until acknowledged
+              }
+              return newState;
+            });
+          }
           if (msg.fall_score !== undefined) setFallScore(msg.fall_score);
+
+          // Trigger CV timeout
+          if (msg.type === 'cv_update' || msg.fall_score !== undefined || msg.is_person_visible !== undefined) {
+            setCvLive(true);
+            if (cvTimeoutRef.current) clearTimeout(cvTimeoutRef.current);
+            cvTimeoutRef.current = setTimeout(() => setCvLive(false), 5000);
+          }
+
+          // Trigger IoT timeout
+          if (msg.type === 'iot_update' || msg.vitals || msg.motion || msg.audio) {
+            setIotLive(true);
+            if (iotTimeoutRef.current) clearTimeout(iotTimeoutRef.current);
+            iotTimeoutRef.current = setTimeout(() => setIotLive(false), 5000);
+          }
 
           // Heartbeat snapshot from backend
           if (msg.type === 'heartbeat') {
@@ -327,6 +352,7 @@ export default function App() {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
+    setSystemState('NORMAL');
     try {
       await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
@@ -423,9 +449,13 @@ export default function App() {
               {isTestingSiren ? <Volume2 className="w-4 h-4 text-[#0a2342]" /> : <VolumeX className="w-4 h-4 text-slate-600" />}
               {isTestingSiren ? "SIREN ACTIVE..." : "TEST ALARM SOUND"}
             </button>
-            <div className={`px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-1.5 ${wsConnected ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10'}`}>
-              {wsConnected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              {wsConnected ? 'LIVE' : 'OFFLINE'}
+            <div className={`px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-1.5 ${wsConnected && cvLive ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10'}`}>
+              {wsConnected && cvLive ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+              CV: {wsConnected && cvLive ? 'LIVE' : 'OFFLINE'}
+            </div>
+            <div className={`px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-1.5 ${wsConnected && iotLive ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10'}`}>
+              {wsConnected && iotLive ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+              IOT: {wsConnected && iotLive ? 'LIVE' : 'OFFLINE'}
             </div>
             <div className={`px-5 py-2 rounded-full border flex items-center gap-2 font-semibold text-sm tracking-wide ${getStatusStyle()}`}>
               {getStatusIcon()}
