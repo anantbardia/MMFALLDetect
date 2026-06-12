@@ -82,12 +82,17 @@ class DecisionEngine {
     if (fallConfirmed && this.currentState !== 'FALL_CONFIRMED') {
       this.setState('FALL_CONFIRMED');
       this.triggerAlarm();
-    } else if (!recentIotFall && !recentCvFall && this.currentState === 'FALL_CONFIRMED') {
-      // Cooldown/Recovery if neither is seeing a fall anymore
-      // We might want to require manual ack, but for now we let it reset after the window if no new data
+    } else if (this.currentState === 'FALL_CONFIRMED') {
+      // Cooldown/Recovery: We require manual ack! Do not auto-reset if it's already confirmed.
     } else if (!fallConfirmed) {
       this.setState('NORMAL');
     }
+  }
+
+  acknowledge() {
+    this.iotFallTime = 0;
+    this.cvFallTime = 0;
+    this.setState('NORMAL');
   }
 
   setState(newState) {

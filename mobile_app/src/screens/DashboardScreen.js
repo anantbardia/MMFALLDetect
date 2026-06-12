@@ -31,6 +31,11 @@ export default function DashboardScreen() {
   const [motion, setMotion] = useState({ ax: 0, ay: 0, az: 0, smv: 0 });
 
   const wsRef = useRef(null);
+  const cvTimeoutRef = useRef(null);
+  const iotTimeoutRef = useRef(null);
+
+  const [cvLive, setCvLive] = useState(false);
+  const [iotLive, setIotLive] = useState(false);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -67,6 +72,10 @@ export default function DashboardScreen() {
 
           // Route all CV-related backend messages to the Decision Engine
           if (msg.type === 'cv_update' || msg.fall_score !== undefined || msg.system_state) {
+            setCvLive(true);
+            if (cvTimeoutRef.current) clearTimeout(cvTimeoutRef.current);
+            cvTimeoutRef.current = setTimeout(() => setCvLive(false), 5000);
+
             if (msg.type === 'cv_update') {
               setIsPersonVisible(msg.data?.person_visible ?? false);
             }
@@ -159,6 +168,12 @@ export default function DashboardScreen() {
         mqttClient.on('onMessageArrived', (topic, payload) => {
           if (!isMounted) return;
           try {
+            if (topic.includes('motion') || topic.includes('vitals') || topic.includes('audio')) {
+              setIotLive(true);
+              if (iotTimeoutRef.current) clearTimeout(iotTimeoutRef.current);
+              iotTimeoutRef.current = setTimeout(() => setIotLive(false), 5000);
+            }
+
             const data = JSON.parse(payload);
             if (topic.includes('motion')) {
               setMotion({ ax: data.ax, ay: data.ay, az: data.az, smv: data.smv });
@@ -197,6 +212,7 @@ export default function DashboardScreen() {
   };
 
   const acknowledgeAlert = async () => {
+    decisionEngine.acknowledge();
     try {
       await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
@@ -277,14 +293,14 @@ export default function DashboardScreen() {
       {/* WS Status & System State */}
       <View style={styles.statusCard}>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <View style={[styles.badge, { backgroundColor: wsConnected ? colors.success + '20' : colors.danger + '20', borderColor: wsConnected ? colors.success : colors.danger }]}>
-            <Text style={[styles.badgeText, { color: wsConnected ? colors.success : colors.danger }]}>
-              CV: {wsConnected ? 'LIVE' : 'OFFLINE'}
+          <View style={[styles.badge, { backgroundColor: (wsConnected && cvLive) ? colors.success + '20' : colors.danger + '20', borderColor: (wsConnected && cvLive) ? colors.success : colors.danger }]}>
+            <Text style={[styles.badgeText, { color: (wsConnected && cvLive) ? colors.success : colors.danger }]}>
+              CV: {(wsConnected && cvLive) ? 'LIVE' : 'OFFLINE'}
             </Text>
           </View>
-          <View style={[styles.badge, { backgroundColor: mqttConnected ? colors.success + '20' : colors.danger + '20', borderColor: mqttConnected ? colors.success : colors.danger }]}>
-            <Text style={[styles.badgeText, { color: mqttConnected ? colors.success : colors.danger }]}>
-              IOT: {mqttConnected ? 'LIVE' : mqttError || 'OFFLINE'}
+          <View style={[styles.badge, { backgroundColor: (mqttConnected && iotLive) ? colors.success + '20' : colors.danger + '20', borderColor: (mqttConnected && iotLive) ? colors.success : colors.danger }]}>
+            <Text style={[styles.badgeText, { color: (mqttConnected && iotLive) ? colors.success : colors.danger }]}>
+              IOT: {(mqttConnected && iotLive) ? 'LIVE' : mqttError || 'OFFLINE'}
             </Text>
           </View>
         </View>
