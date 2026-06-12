@@ -51,8 +51,8 @@ export default function App() {
   const [cvLive, setCvLive] = useState(false);
   const [iotLive, setIotLive] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const cvTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const iotTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const cvTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const iotTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isTestingSiren, setIsTestingSiren] = useState(false);
 
   // Reference for stable WebSocket subscriptions without reconnection spikes
