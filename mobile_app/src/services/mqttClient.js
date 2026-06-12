@@ -6,6 +6,8 @@ class MQTTService {
     this.client = null;
     this.callbacks = {};
     this.isConnected = false;
+    this.isConnecting = false;
+    this.reconnectTimeout = null;
   }
 
   generateClientId() {
@@ -13,10 +15,11 @@ class MQTTService {
   }
 
   async connect() {
-    if (this.client && this.isConnected) {
-      console.log('Already connected to MQTT broker');
+    if (this.isConnected || this.isConnecting) {
+      console.log('Already connected or connecting to MQTT broker');
       return;
     }
+    this.isConnecting = true;
 
     return new Promise((resolve, reject) => {
       const clientId = this.generateClientId();
@@ -29,10 +32,23 @@ class MQTTService {
 
       this.client.onConnectionLost = (responseObject) => {
         this.isConnected = false;
+        this.isConnecting = false;
         console.log('MQTT Connection Lost:', responseObject.errorMessage);
         if (this.callbacks['onConnectionLost']) {
           this.callbacks['onConnectionLost'](responseObject);
         }
+        
+        // Auto-reconnect after 3 seconds
+        if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+        this.reconnectTimeout = setTimeout(() => {
+          console.log('Attempting to auto-reconnect MQTT...');
+          this.connect().then(() => {
+            // Re-subscribe to topics after reconnect
+            if (this.callbacks['onReconnect']) {
+              this.callbacks['onReconnect']();
+            }
+          }).catch(e => console.log('Auto-reconnect failed', e));
+        }, 3000);
       };
 
       this.client.onMessageArrived = (message) => {
@@ -46,14 +62,26 @@ class MQTTService {
         useSSL: true,
         userName: username,
         password: password,
+        keepAliveInterval: 60,
+        reconnect: true,
         onSuccess: () => {
           this.isConnected = true;
+          this.isConnecting = false;
           console.log('MQTT Connected Successfully to HiveMQ!');
           resolve();
         },
         onFailure: (message) => {
           this.isConnected = false;
+          this.isConnecting = false;
           console.error('MQTT Connection failed:', message.errorMessage);
+          
+          // Auto-reconnect on initial failure too
+          if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = setTimeout(() => {
+            console.log('Retrying MQTT connection...');
+            this.connect();
+          }, 5000);
+          
           reject(message);
         }
       };
@@ -82,9 +110,11 @@ class MQTTService {
   }
 
   disconnect() {
+    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     if (this.client && this.isConnected) {
       this.client.disconnect();
       this.isConnected = false;
+      this.isConnecting = false;
       console.log('MQTT Disconnected');
     }
   }

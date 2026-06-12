@@ -142,7 +142,17 @@ export default function DashboardScreen() {
         mqttClient.on('onConnectionLost', (err) => {
           if (isMounted) {
             setMqttConnected(false);
-            setMqttError('Connection Lost');
+            setMqttError('Connection Lost (Reconnecting...)');
+          }
+        });
+
+        mqttClient.on('onReconnect', () => {
+          if (isMounted) {
+            setMqttConnected(true);
+            setMqttError('');
+            mqttClient.subscribe('fall_detection/motion/patient_01');
+            mqttClient.subscribe('fall_detection/vitals/patient_01');
+            mqttClient.subscribe('fall_detection/audio/patient_01');
           }
         });
 
