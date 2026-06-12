@@ -6,7 +6,7 @@
  *   - MAX30105 (I2C) : Heart rate + SpO2
  *   - INMP441 / I2S Microphone (Digital)
  * 
- * Communication: MQTT over WiFi
+ * Communication: Dual MQTT over WiFi
  */
 
 #include <WiFi.h>
@@ -19,19 +19,19 @@
 
 // ─── Configuration ──────────────────────────────
 const char* WIFI_SSID     = "unidentified";
-const char* WIFI_PASSWORD = "12345678";
+const char* WIFI_PASSWORD = "12345678"; 
 
 // Broker 1 (Render Web App)
-const char* MQTT_BROKER_1 = "09d10f909bf646a1aac33b698cc21cb0.s1.eu.hivemq.cloud";
-const int   MQTT_PORT_1   = 8883;
-const char* MQTT_USER_1   = "hivemq.webclient.1776794982353";
-const char* MQTT_PASS_1   = "ua3,1?KP>h0iA6qDMEr";
+const char* MQTT_BROKER_1   = "09d10f909bf646a1aac33b698cc21cb0.s1.eu.hivemq.cloud";
+const int   MQTT_PORT_1     = 8883;
+const char* MQTT_USER_1     = "hivemq.webclient.1776794982353";
+const char* MQTT_PASS_1     = "ua3.,1?KP>h0iA6qDMEr";
 
 // Broker 2 (Mobile App)
-const char* MQTT_BROKER_2 = "c52ac5aafe364324856f4bf4eaed8b2d.s1.eu.hivemq.cloud";
-const int   MQTT_PORT_2   = 8883;
-const char* MQTT_USER_2   = "hivemq.webclient.1781292820732";
-const char* MQTT_PASS_2   = "pn:9fS$Q3v6A1BVb>O@r";
+const char* MQTT_BROKER_2   = "c52ac5aafe364324856f4bf4eaed8b2d.s1.eu.hivemq.cloud";
+const int   MQTT_PORT_2     = 8883;
+const char* MQTT_USER_2     = "hivemq.webclient.1781292820732";
+const char* MQTT_PASS_2     = "pn:9fS$Q3v6A1BVb>O@r";
 
 const char* PATIENT_ID    = "patient_01";
 
@@ -64,6 +64,7 @@ PubSubClient mqttClient1(espClient1);
 
 WiFiClientSecure espClient2;
 PubSubClient mqttClient2(espClient2);
+
 MAX30105 particleSensor;
 
 float ax, ay, az;       // Accelerometer (g)
@@ -72,10 +73,6 @@ float smv;              // Signal Magnitude Vector
 int heartRate = 75;
 int spo2 = 98;
 int batteryLevel = 100;
-
-// ─── GSM Config ─────────────────────────────────
-HardwareSerial sim800(1);
-const char* EMERGENCY_PHONE = "+918827139859";
 
 unsigned long lastMotionSend = 0;
 unsigned long lastVitalsSend = 0;
@@ -94,7 +91,29 @@ char topicAudio[64];
 
 // ─── UART/WiFi/MQTT ─────────────────────────────
 void connectMQTT() {
-    // Left empty, handled dynamically in loop() to avoid blocking
+    // Attempt connection to Broker 1 (Render)
+    if (!mqttClient1.connected()) {
+        Serial.print("[MQTT 1] Connecting to Render Cloud...");
+        if (mqttClient1.connect("ESP32_FallPatch_1", MQTT_USER_1, MQTT_PASS_1)) {
+            Serial.println(" Connected!");
+        } else {
+            Serial.print(" Failed (rc=");
+            Serial.print(mqttClient1.state());
+            Serial.println(")");
+        }
+    }
+
+    // Attempt connection to Broker 2 (Mobile App)
+    if (!mqttClient2.connected()) {
+        Serial.print("[MQTT 2] Connecting to Mobile Cloud...");
+        if (mqttClient2.connect("ESP32_FallPatch_2", MQTT_USER_2, MQTT_PASS_2)) {
+            Serial.println(" Connected!");
+        } else {
+            Serial.print(" Failed (rc=");
+            Serial.print(mqttClient2.state());
+            Serial.println(")");
+        }
+    }
 }
 
 // ─── IMU Functions ──────────────────────────────
@@ -167,11 +186,6 @@ bool detectVoiceActivity() {
 // ─── Setup ──────────────────────────────────────
 void setup() {
     Serial.begin(115200);
-    
-    // Init SIM800L (ESP32-C3 Pins: RX=0, TX=3)
-    // GPIO 2 is a critical STRAPPING PIN that halts boot if pulled low. We must avoid 2!
-    sim800.begin(9600, SERIAL_8N1, 0, 3);
-    
     Wire.begin(SDA_PIN, SCL_PIN);
     
     // Build MQTT topics
@@ -230,10 +244,11 @@ void setup() {
     Serial.println(" Connected!");
     Serial.println(WiFi.localIP());
     
-    // Init MQTT - Use insecure to skip certificate validation
+    // Init MQTT 1 - Use insecure to skip certificate validation
     espClient1.setInsecure();
     mqttClient1.setServer(MQTT_BROKER_1, MQTT_PORT_1);
     
+    // Init MQTT 2 - Use insecure to skip certificate validation
     espClient2.setInsecure();
     mqttClient2.setServer(MQTT_BROKER_2, MQTT_PORT_2);
     
@@ -245,41 +260,7 @@ void setup() {
 
 // ─── Read Battery Level ─────────────────────────
 void readBattery() {
-    // GPIO 35 is not a valid ADC pin on ESP32-C3
-    // int raw = analogRead(BATTERY_PIN);
-    // float voltage = (raw / 4095.0) * 3.3 * 2;
-    // batteryLevel = constrain(map(voltage * 100, 310, 420, 0, 100), 0, 100);
-    
     batteryLevel = 100; // Hardcoded default
-}
-
-// ─── GSM Fallback Alert ─────────────────────────
-void triggerGSMFallback() {
-    Serial.println("[GSM] CRITICAL: Triggering GSM Fallback! No Cloud/WiFi Connection.");
-    
-    // 1. Send SMS
-    sim800.println("AT+CMGF=1"); // Set SMS to Text Mode
-    delay(500);
-    sim800.print("AT+CMGS=\"");
-    sim800.print(EMERGENCY_PHONE);
-    sim800.println("\"");
-    delay(500);
-    sim800.print("EMERGENCY: Fall Detected! Patient is offline from cloud and needs immediate assistance.");
-    delay(500);
-    sim800.write(26); // Send CTRL+Z
-    Serial.println("[GSM] SMS Sent.");
-    delay(3000); // Give module time to process SMS
-    
-    // 2. Initiate Phone Call
-    sim800.print("ATD");
-    sim800.print(EMERGENCY_PHONE);
-    sim800.println(";");
-    Serial.println("[GSM] Calling caretaker...");
-    
-    // Wait for 20 seconds of ringing/call duration before hanging up
-    delay(20000); 
-    sim800.println("ATH"); // Hang up
-    Serial.println("[GSM] Call ended.");
 }
 
 // ─── Publish Motion Data ────────────────────────
@@ -344,37 +325,13 @@ void publishAudio(bool distressDetected) {
 
 // ─── Main Loop ──────────────────────────────────
 void loop() {
-    bool isConnected1 = mqttClient1.connected();
-    bool isConnected2 = mqttClient2.connected();
-    
-    if (WiFi.status() == WL_CONNECTED) {
-        if (!isConnected1) {
-            Serial.print("[MQTT 1] Connecting... ");
-            if (mqttClient1.connect("ESP32_P1", MQTT_USER_1, MQTT_PASS_1)) {
-                Serial.println("Connected!");
-                isConnected1 = true;
-            } else {
-                Serial.println("Failed");
-            }
-        } else {
-            mqttClient1.loop();
-        }
-        
-        if (!isConnected2) {
-            Serial.print("[MQTT 2] Connecting... ");
-            if (mqttClient2.connect("ESP32_P2", MQTT_USER_2, MQTT_PASS_2)) {
-                Serial.println("Connected!");
-                isConnected2 = true;
-            } else {
-                Serial.println("Failed");
-            }
-        } else {
-            mqttClient2.loop();
-        }
+    // If either client disconnects, attempt to reconnect
+    if (!mqttClient1.connected() || !mqttClient2.connected()) {
+        connectMQTT();
     }
     
-    // We consider the ESP online if at least one broker is connected
-    bool isConnectedToCloud = isConnected1 || isConnected2;
+    mqttClient1.loop();
+    mqttClient2.loop();
     
     unsigned long now = millis();
     
@@ -394,23 +351,14 @@ void loop() {
         // ── Motion spike → activate microphone ──
         if (smv > SMV_SPIKE_THRESHOLD && !motionSpikeActive) {
             motionSpikeActive = true;
-            Serial.println("[ALERT] Motion spike detected!");
+            Serial.println("[ALERT] Motion spike detected! Activating microphone...");
             
-            // ── FALLBACK LOGIC ──
-            if (!isConnectedToCloud) {
-                // We have no way to reach the apps. Trigger cellular fallback immediately!
-                triggerGSMFallback();
-            } else {
-                // Normal Cloud Execution
-                Serial.println("Activating microphone...");
-                bool distress = detectVoiceActivity();
-                publishAudio(distress);
-                
-                if (distress) {
-                    Serial.println("[ALERT] Distress sound detected!");
-                }
+            bool distress = detectVoiceActivity();
+            publishAudio(distress);
+            
+            if (distress) {
+                Serial.println("[ALERT] Distress sound detected!");
             }
-            
             motionSpikeActive = false;
         }
     }

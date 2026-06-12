@@ -1,12 +1,10 @@
 /*
- * ESP32 Wearable IoT Patch Firmware (spec §4)
+ * ESP32 Wearable IoT Patch Firmware - MASTER EDITION
  * 
- * Sensors:
- *   - LSM6DS3 (I2C) : 3-axis accelerometer + gyroscope (0x6B)
- *   - MAX30105 (I2C) : Heart rate + SpO2
- *   - INMP441 / I2S Microphone (Digital)
- * 
- * Communication: MQTT over WiFi
+ * Features:
+ *   - Dual MQTT Broadcasting (Render App + Mobile App)
+ *   - GSM SIM800L Fallback
+ *   - Sensor Fusion (IMU + MAX30105 + I2S Mic)
  */
 
 #include <WiFi.h>
@@ -19,26 +17,26 @@
 
 // ─── Configuration ──────────────────────────────
 const char* WIFI_SSID     = "unidentified";
-const char* WIFI_PASSWORD = "12345678";
+const char* WIFI_PASSWORD = "12345678"; 
 
 // Broker 1 (Render Web App)
-const char* MQTT_BROKER_1 = "09d10f909bf646a1aac33b698cc21cb0.s1.eu.hivemq.cloud";
-const int   MQTT_PORT_1   = 8883;
-const char* MQTT_USER_1   = "hivemq.webclient.1776794982353";
-const char* MQTT_PASS_1   = "ua3,1?KP>h0iA6qDMEr";
+const char* MQTT_BROKER_1   = "09d10f909bf646a1aac33b698cc21cb0.s1.eu.hivemq.cloud";
+const int   MQTT_PORT_1     = 8883;
+const char* MQTT_USER_1     = "hivemq.webclient.1776794982353";
+const char* MQTT_PASS_1     = "ua3.,1?KP>h0iA6qDMEr"; // Fixed missing period
 
 // Broker 2 (Mobile App)
-const char* MQTT_BROKER_2 = "c52ac5aafe364324856f4bf4eaed8b2d.s1.eu.hivemq.cloud";
-const int   MQTT_PORT_2   = 8883;
-const char* MQTT_USER_2   = "hivemq.webclient.1781292820732";
-const char* MQTT_PASS_2   = "pn:9fS$Q3v6A1BVb>O@r";
+const char* MQTT_BROKER_2   = "c52ac5aafe364324856f4bf4eaed8b2d.s1.eu.hivemq.cloud";
+const int   MQTT_PORT_2     = 8883;
+const char* MQTT_USER_2     = "hivemq.webclient.1781292820732";
+const char* MQTT_PASS_2     = "pn:9fS$Q3v6A1BVb>O@r";
 
 const char* PATIENT_ID    = "patient_01";
 
 // ─── Pin Definitions ────────────────────────────
 #define SDA_PIN 8
 #define SCL_PIN 9
-#define BATTERY_PIN 35    // Analog input for battery voltage divider
+#define BATTERY_PIN 35
 
 // IMU Config
 #define IMU_ADDR 0x6B
@@ -51,12 +49,12 @@ const char* PATIENT_ID    = "patient_01";
 #define BUFFER_LEN 64
 
 // ─── Thresholds ─────────────────────────────────
-#define SMV_SPIKE_THRESHOLD  2.5   // g-force threshold for motion spike
-#define MIC_NOISE_THRESHOLD  10000 // Digital I2S threshold for voice activity
-#define MIC_SAMPLE_DURATION  2000  // ms to record audio after spike
-#define SLEEP_TIMEOUT_MS     60000 // 60s of no motion → deep sleep
-#define MOTION_INTERVAL_MS   40    // Ultra-smooth 25Hz transmission
-#define VITALS_INTERVAL_MS   2000  // Send vitals every 2s
+#define SMV_SPIKE_THRESHOLD  2.5
+#define MIC_NOISE_THRESHOLD  10000
+#define MIC_SAMPLE_DURATION  2000
+#define SLEEP_TIMEOUT_MS     60000
+#define MOTION_INTERVAL_MS   40
+#define VITALS_INTERVAL_MS   2000
 
 // ─── Globals ────────────────────────────────────
 WiFiClientSecure espClient1;
@@ -64,18 +62,15 @@ PubSubClient mqttClient1(espClient1);
 
 WiFiClientSecure espClient2;
 PubSubClient mqttClient2(espClient2);
+
 MAX30105 particleSensor;
 
-float ax, ay, az;       // Accelerometer (g)
-float gx, gy, gz;       // Gyroscope (deg/s)
-float smv;              // Signal Magnitude Vector
+float ax, ay, az;
+float gx, gy, gz;
+float smv;
 int heartRate = 75;
 int spo2 = 98;
 int batteryLevel = 100;
-
-// ─── GSM Config ─────────────────────────────────
-HardwareSerial sim800(1);
-const char* EMERGENCY_PHONE = "+918827139859";
 
 unsigned long lastMotionSend = 0;
 unsigned long lastVitalsSend = 0;
@@ -87,14 +82,37 @@ bool imu_ok = false;
 bool max_ok = false;
 bool mic_ok = false;
 
-// ─── Topic Buffers ──────────────────────────────
 char topicMotion[64];
 char topicVitals[64];
 char topicAudio[64];
 
+// ─── GSM Config ─────────────────────────────────
+HardwareSerial sim800(1);
+const char* EMERGENCY_PHONE = "+918827139859";
+
 // ─── UART/WiFi/MQTT ─────────────────────────────
 void connectMQTT() {
-    // Left empty, handled dynamically in loop() to avoid blocking
+    if (!mqttClient1.connected()) {
+        Serial.print("[MQTT 1] Connecting to Render Cloud...");
+        if (mqttClient1.connect("ESP32_FallPatch_1", MQTT_USER_1, MQTT_PASS_1)) {
+            Serial.println(" Connected!");
+        } else {
+            Serial.print(" Failed (rc=");
+            Serial.print(mqttClient1.state());
+            Serial.println(")");
+        }
+    }
+
+    if (!mqttClient2.connected()) {
+        Serial.print("[MQTT 2] Connecting to Mobile Cloud...");
+        if (mqttClient2.connect("ESP32_FallPatch_2", MQTT_USER_2, MQTT_PASS_2)) {
+            Serial.println(" Connected!");
+        } else {
+            Serial.print(" Failed (rc=");
+            Serial.print(mqttClient2.state());
+            Serial.println(")");
+        }
+    }
 }
 
 // ─── IMU Functions ──────────────────────────────
@@ -123,7 +141,6 @@ void readIMU() {
     int16_t gx_raw = Wire.read() | (Wire.read() << 8);
     int16_t gy_raw = Wire.read() | (Wire.read() << 8);
     int16_t gz_raw = Wire.read() | (Wire.read() << 8);
-
     int16_t ax_raw = Wire.read() | (Wire.read() << 8);
     int16_t ay_raw = Wire.read() | (Wire.read() << 8);
     int16_t az_raw = Wire.read() | (Wire.read() << 8);
@@ -131,12 +148,10 @@ void readIMU() {
     gx = gx_raw * 0.07f;
     gy = gy_raw * 0.07f;
     gz = gz_raw * 0.07f;
-
     ax = ax_raw * 0.000061f;
     ay = ay_raw * 0.000061f;
     az = az_raw * 0.000061f;
 
-    // Signal Magnitude Vector
     smv = sqrt(ax * ax + ay * ay + az * az);
 }
 
@@ -167,23 +182,22 @@ bool detectVoiceActivity() {
 // ─── Setup ──────────────────────────────────────
 void setup() {
     Serial.begin(115200);
-    
-    // Init SIM800L (ESP32-C3 Pins: RX=0, TX=3)
-    // GPIO 2 is a critical STRAPPING PIN that halts boot if pulled low. We must avoid 2!
-    sim800.begin(9600, SERIAL_8N1, 0, 3);
-    
     Wire.begin(SDA_PIN, SCL_PIN);
     
-    // Build MQTT topics
+    // -------------------------------------------------------------
+    // THE SECRET FIX FOR THE WIFI CRASH!
+    // Using pins 0, 1, or 2 on ESP32-C3 breaks the WiFi crystal and bootloader.
+    // We must use completely independent pins. Here we use 7 and 10!
+    // -------------------------------------------------------------
+    sim800.begin(9600, SERIAL_8N1, 7, 10);
+    
     snprintf(topicMotion, sizeof(topicMotion), "fall_detection/motion/%s", PATIENT_ID);
     snprintf(topicVitals, sizeof(topicVitals), "fall_detection/vitals/%s", PATIENT_ID);
     snprintf(topicAudio,  sizeof(topicAudio),  "fall_detection/audio/%s",  PATIENT_ID);
     
-    // Init IMU
     initIMU();
     Serial.println(imu_ok ? "IMU OK" : "IMU FAIL");
     
-    // Init MAX30105
     if (particleSensor.begin(Wire)) {
         max_ok = true;
         particleSensor.setup();
@@ -192,7 +206,6 @@ void setup() {
         Serial.println("MAX FAIL");
     }
 
-    // Init MIC
     i2s_config_t config = {
       .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
       .sample_rate = 16000,
@@ -203,7 +216,6 @@ void setup() {
       .dma_buf_count = 4,
       .dma_buf_len = BUFFER_LEN
     };
-
     i2s_pin_config_t pins = {
       .bck_io_num = I2S_SCK,
       .ws_io_num = I2S_WS,
@@ -219,8 +231,7 @@ void setup() {
         Serial.println("MIC FAIL");
     }
     
-    // Init WiFi
-    WiFi.setSleep(false); // Ultra-low latency: disables WiFi power saving which kills packet transit times
+    WiFi.setSleep(false); 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.print("[WiFi] Connecting");
     while (WiFi.status() != WL_CONNECTED) {
@@ -230,7 +241,6 @@ void setup() {
     Serial.println(" Connected!");
     Serial.println(WiFi.localIP());
     
-    // Init MQTT - Use insecure to skip certificate validation
     espClient1.setInsecure();
     mqttClient1.setServer(MQTT_BROKER_1, MQTT_PORT_1);
     
@@ -239,18 +249,7 @@ void setup() {
     
     pinMode(BATTERY_PIN, INPUT);
     analogReadResolution(12);
-    
     lastMovementTime = millis();
-}
-
-// ─── Read Battery Level ─────────────────────────
-void readBattery() {
-    // GPIO 35 is not a valid ADC pin on ESP32-C3
-    // int raw = analogRead(BATTERY_PIN);
-    // float voltage = (raw / 4095.0) * 3.3 * 2;
-    // batteryLevel = constrain(map(voltage * 100, 310, 420, 0, 100), 0, 100);
-    
-    batteryLevel = 100; // Hardcoded default
 }
 
 // ─── GSM Fallback Alert ─────────────────────────
@@ -258,7 +257,7 @@ void triggerGSMFallback() {
     Serial.println("[GSM] CRITICAL: Triggering GSM Fallback! No Cloud/WiFi Connection.");
     
     // 1. Send SMS
-    sim800.println("AT+CMGF=1"); // Set SMS to Text Mode
+    sim800.println("AT+CMGF=1");
     delay(500);
     sim800.print("AT+CMGS=\"");
     sim800.print(EMERGENCY_PHONE);
@@ -266,9 +265,9 @@ void triggerGSMFallback() {
     delay(500);
     sim800.print("EMERGENCY: Fall Detected! Patient is offline from cloud and needs immediate assistance.");
     delay(500);
-    sim800.write(26); // Send CTRL+Z
+    sim800.write(26);
     Serial.println("[GSM] SMS Sent.");
-    delay(3000); // Give module time to process SMS
+    delay(3000); 
     
     // 2. Initiate Phone Call
     sim800.print("ATD");
@@ -276,10 +275,14 @@ void triggerGSMFallback() {
     sim800.println(";");
     Serial.println("[GSM] Calling caretaker...");
     
-    // Wait for 20 seconds of ringing/call duration before hanging up
     delay(20000); 
-    sim800.println("ATH"); // Hang up
+    sim800.println("ATH");
     Serial.println("[GSM] Call ended.");
+}
+
+// ─── Read Battery Level ─────────────────────────
+void readBattery() {
+    batteryLevel = 100;
 }
 
 // ─── Publish Motion Data ────────────────────────
@@ -288,15 +291,13 @@ void publishMotion() {
     if (smv > SMV_SPIKE_THRESHOLD) {
         strcpy(motionType, "sudden");
     }
-    
     float gyroMag = sqrt(gx*gx + gy*gy + gz*gz);
     
     char payload[256];
     snprintf(payload, sizeof(payload),
         "{\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,\"gyro\":%.1f,\"smv\":%.2f,"
         "\"motion\":\"%s\",\"battery_level\":%d,\"timestamp\":%lu}",
-        ax, ay, az, gyroMag, smv,
-        motionType, batteryLevel, millis());
+        ax, ay, az, gyroMag, smv, motionType, batteryLevel, millis());
     
     if (mqttClient1.connected()) mqttClient1.publish(topicMotion, payload);
     if (mqttClient2.connected()) mqttClient2.publish(topicMotion, payload);
@@ -306,26 +307,20 @@ void publishMotion() {
 void publishVitals() {
     if (max_ok) {
         long irValue = particleSensor.getIR();
-        
-        // Output stable resting vitals only if the finger is actually on the sensor
         if (irValue > 10000) {
             heartRate = 72 + (millis() % 10);
             spo2 = 97 + (millis() % 3);
         } else {
-            heartRate = 0;
-            spo2 = 0;
+            heartRate = 0; spo2 = 0;
         }
-        
         Serial.printf("[VITALS] IR=%ld, HR=%d, SpO2=%d\n", irValue, heartRate, spo2);
     } else {
-        heartRate = 0;
-        spo2 = 0;
+        heartRate = 0; spo2 = 0;
     }
     
     char payload[128];
     snprintf(payload, sizeof(payload),
-        "{\"heart_rate\":%d,\"spo2\":%d,\"timestamp\":%lu}",
-        heartRate, spo2, millis());
+        "{\"heart_rate\":%d,\"spo2\":%d,\"timestamp\":%lu}", heartRate, spo2, millis());
     
     if (mqttClient1.connected()) mqttClient1.publish(topicVitals, payload);
     if (mqttClient2.connected()) mqttClient2.publish(topicVitals, payload);
@@ -344,47 +339,18 @@ void publishAudio(bool distressDetected) {
 
 // ─── Main Loop ──────────────────────────────────
 void loop() {
-    bool isConnected1 = mqttClient1.connected();
-    bool isConnected2 = mqttClient2.connected();
-    
-    if (WiFi.status() == WL_CONNECTED) {
-        if (!isConnected1) {
-            Serial.print("[MQTT 1] Connecting... ");
-            if (mqttClient1.connect("ESP32_P1", MQTT_USER_1, MQTT_PASS_1)) {
-                Serial.println("Connected!");
-                isConnected1 = true;
-            } else {
-                Serial.println("Failed");
-            }
-        } else {
-            mqttClient1.loop();
-        }
-        
-        if (!isConnected2) {
-            Serial.print("[MQTT 2] Connecting... ");
-            if (mqttClient2.connect("ESP32_P2", MQTT_USER_2, MQTT_PASS_2)) {
-                Serial.println("Connected!");
-                isConnected2 = true;
-            } else {
-                Serial.println("Failed");
-            }
-        } else {
-            mqttClient2.loop();
-        }
+    if (!mqttClient1.connected() || !mqttClient2.connected()) {
+        connectMQTT();
     }
     
-    // We consider the ESP online if at least one broker is connected
-    bool isConnectedToCloud = isConnected1 || isConnected2;
+    mqttClient1.loop();
+    mqttClient2.loop();
     
+    bool isConnectedToCloud = mqttClient1.connected() || mqttClient2.connected();
     unsigned long now = millis();
-    
-    // Read sensors
     readIMU();
     
-    // Track movement for deep sleep
-    if (smv > 1.2) {
-        lastMovementTime = now;
-    }
+    if (smv > 1.2) lastMovementTime = now;
     
     // ── Send motion data at regular intervals ──
     if (now - lastMotionSend >= MOTION_INTERVAL_MS) {
@@ -396,21 +362,16 @@ void loop() {
             motionSpikeActive = true;
             Serial.println("[ALERT] Motion spike detected!");
             
-            // ── FALLBACK LOGIC ──
             if (!isConnectedToCloud) {
-                // We have no way to reach the apps. Trigger cellular fallback immediately!
+                // If BOTH brokers are offline, trigger GSM!
                 triggerGSMFallback();
             } else {
-                // Normal Cloud Execution
                 Serial.println("Activating microphone...");
                 bool distress = detectVoiceActivity();
                 publishAudio(distress);
                 
-                if (distress) {
-                    Serial.println("[ALERT] Distress sound detected!");
-                }
+                if (distress) Serial.println("[ALERT] Distress sound detected!");
             }
-            
             motionSpikeActive = false;
         }
     }
@@ -427,10 +388,9 @@ void loop() {
         Serial.println("[POWER] No motion detected. Entering deep sleep...");
         mqttClient1.disconnect();
         mqttClient2.disconnect();
-        // Fallback to wake-up interval since we don't have MPU6050 INT pin configured here
-        esp_sleep_enable_timer_wakeup(10 * 1000000); // 10s sleep for now
+        esp_sleep_enable_timer_wakeup(10 * 1000000); // 10s sleep
         esp_deep_sleep_start();
     }
     
-    delay(2); // Reduced loop blocking duration for tighter MQTT telemetry cycles
+    delay(2);
 }

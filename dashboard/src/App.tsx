@@ -115,13 +115,13 @@ export default function App() {
 
             if (msg.motion && (msg.motion.ax !== 0 || msg.motion.ay !== 0 || msg.motion.az !== 0)) {
               setHasMotionData(true);
-              
+
               // Calculate or read SMV to check for fluctuations
               const ax = msg.motion.ax;
               const ay = msg.motion.ay;
               const az = msg.motion.az;
               const smv = msg.motion.smv ?? Math.sqrt(ax * ax + ay * ay + az * az);
-              
+
               // Trigger beep warning on sudden fluctuations
               if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
                 lastBeepTimeRef.current = Date.now();
@@ -163,7 +163,7 @@ export default function App() {
             if (d.distress_sound_detected !== undefined) setIsAudioDistress(d.distress_sound_detected);
             if (d.ax !== undefined || d.ay !== undefined || d.az !== undefined) {
               setHasMotionData(true);
-              
+
               const ax = d.ax ?? 0;
               const ay = d.ay ?? 0;
               const az = d.az ?? 0;
@@ -384,8 +384,8 @@ export default function App() {
       case 'FALL_CONFIRMED': return 'text-orange-500 bg-orange-500/10 border-orange-500/30';
       case 'MEDICAL_ALERT':
       case 'ALERT_SENT': return 'text-rose-500 bg-rose-500/10 border-rose-500/30';
-      case 'RECOVERY': return 'text-blue-400 bg-blue-400/10 border-blue-400/30';
-      default: return 'text-slate-400 bg-slate-400/10 border-slate-400/30';
+      case 'RECOVERY': return 'text-[#f39c12] bg-blue-400/10 border-blue-400/30';
+      default: return 'text-slate-600 bg-slate-400/10 border-slate-400/30';
     }
   };
 
@@ -406,18 +406,21 @@ export default function App() {
 
         {/* ═══ Header ═══ */}
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-indigo-400 to-violet-400 bg-clip-text text-transparent">
-              ShieldCare Monitor
-            </h1>
-            <p className="text-slate-500 text-sm mt-1">Intelligent Multi-Modal Fall Detection & Health Monitoring</p>
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="Fall-o-Up Logo" className="w-12 h-12 object-contain" />
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-[#0a2342] via-[#6b4cc9] to-[#27ae60] bg-clip-text text-transparent">
+                Fall-o-Up Monitor
+              </h1>
+              <p className="text-slate-500 text-sm mt-1">Intelligent Multi-Modal Fall Detection & Health Monitoring</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={triggerSoundTest}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full border font-semibold text-xs tracking-wide transition-all shadow-md active:scale-95 shrink-0 ${isTestingSiren ? 'bg-amber-500 text-white border-amber-400 animate-pulse' : 'bg-slate-900/60 hover:bg-slate-800/80 text-slate-200 border-slate-700/60 hover:scale-[1.02]'}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full border font-semibold text-xs tracking-wide transition-all shadow-md active:scale-95 shrink-0 ${isTestingSiren ? 'bg-amber-500 text-[#0a2342] border-amber-400 animate-pulse' : 'bg-white/60 hover:bg-slate-100/80 text-[#0a2342] border-slate-300/60 hover:scale-[1.02]'}`}
             >
-              {isTestingSiren ? <Volume2 className="w-4 h-4 text-white" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+              {isTestingSiren ? <Volume2 className="w-4 h-4 text-[#0a2342]" /> : <VolumeX className="w-4 h-4 text-slate-600" />}
               {isTestingSiren ? "SIREN ACTIVE..." : "TEST ALARM SOUND"}
             </button>
             <div className={`px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-1.5 ${wsConnected ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-rose-500/30 text-rose-400 bg-rose-500/10'}`}>
@@ -433,10 +436,10 @@ export default function App() {
 
         {/* ═══ Flashing High-Urgency Fall Alert Banner ═══ */}
         {isEmergency && (
-          <div className="bg-red-600 border border-red-500 text-white p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5 animate-pulse shadow-[0_0_30px_rgba(220,38,38,0.5)]">
+          <div className="bg-red-600 border border-red-500 text-[#0a2342] p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5 animate-pulse shadow-[0_0_30px_rgba(220,38,38,0.5)]">
             <div className="flex items-center gap-4 text-center md:text-left">
               <div className="bg-white/20 p-3 rounded-full animate-bounce">
-                <ShieldAlert className="w-12 h-12 text-white" />
+                <ShieldAlert className="w-12 h-12 text-[#0a2342]" />
               </div>
               <div>
                 <h2 className="text-3xl font-extrabold tracking-wider animate-pulse">⚠️ CRITICAL: FALL DETECTED!</h2>
@@ -446,8 +449,8 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <button 
-                onClick={acknowledgeAlert} 
+              <button
+                onClick={acknowledgeAlert}
                 className="bg-white hover:bg-red-50 text-red-600 font-bold px-8 py-3 rounded-xl transition-all shadow-lg active:scale-95 shrink-0"
               >
                 Acknowledge & Clear Alarm
@@ -466,52 +469,52 @@ export default function App() {
             <div className="glass-panel p-5 h-[420px] flex flex-col">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base font-semibold flex items-center gap-2 text-slate-200">
-                    <Activity className="w-4 h-4 text-indigo-400" /> Live Camera Feed
+                  <h2 className="text-base font-semibold flex items-center gap-2 text-[#0a2342]">
+                    <Activity className="w-4 h-4 text-[#6b4cc9]" /> Live Camera Feed
                   </h2>
-                  <button 
-                    onClick={() => setShowCameraSettings(!showCameraSettings)} 
-                    className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+                  <button
+                    onClick={() => setShowCameraSettings(!showCameraSettings)}
+                    className="p-1 rounded hover:bg-slate-100 text-slate-600 hover:text-[#0a2342] transition-colors"
                     title="Camera Feed Settings"
                   >
                     <Settings className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${isPersonVisible ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-500 bg-slate-800/50'}`}>
+                  <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1.5 ${isPersonVisible ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-slate-300 text-slate-500 bg-slate-100/50'}`}>
                     {isPersonVisible ? <><UserCheck className="w-3.5 h-3.5" /> Person Tracked</> : <><UserX className="w-3.5 h-3.5" /> No Person</>}
                   </div>
                 </div>
               </div>
-              
+
               {showCameraSettings && (
-                <div className="bg-slate-900/95 border border-slate-800 p-4 rounded-xl mb-3 flex flex-col gap-3 animate-fadeIn shadow-2xl">
+                <div className="bg-white/95 border border-slate-200 p-4 rounded-xl mb-3 flex flex-col gap-3 animate-fadeIn shadow-2xl">
                   <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1 flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Camera Feed URL</span>
-                      <input 
-                        type="text" 
-                        value={customCameraUrl} 
-                        onChange={(e) => setCustomCameraUrl(e.target.value)} 
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                      <span className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">Camera Feed URL</span>
+                      <input
+                        type="text"
+                        value={customCameraUrl}
+                        onChange={(e) => setCustomCameraUrl(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-[#0a2342] focus:outline-none focus:border-indigo-500 transition-all font-mono"
                         placeholder="e.g. http://localhost:8001/video_feed"
                       />
                     </div>
                     <div className="flex-1 flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Backend API URL</span>
-                      <input 
-                        type="text" 
-                        value={customBaseUrl} 
-                        onChange={(e) => setCustomBaseUrl(e.target.value)} 
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                      <span className="text-[10px] text-slate-600 font-bold uppercase tracking-wider">Backend API URL</span>
+                      <input
+                        type="text"
+                        value={customBaseUrl}
+                        onChange={(e) => setCustomBaseUrl(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-[#0a2342] focus:outline-none focus:border-indigo-500 transition-all font-mono"
                         placeholder="e.g. http://localhost:8000"
                       />
                     </div>
                   </div>
                   <div className="flex justify-end">
-                    <button 
-                      onClick={saveSettings} 
-                      className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md hover:scale-[1.02]"
+                    <button
+                      onClick={saveSettings}
+                      className="bg-indigo-500 hover:bg-indigo-600 text-[#0a2342] px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md hover:scale-[1.02]"
                     >
                       <Save className="w-3.5 h-3.5" /> Save Configuration
                     </button>
@@ -519,10 +522,10 @@ export default function App() {
                 </div>
               )}
 
-              <div className="flex-1 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-center relative overflow-hidden">
-                <img 
-                  src={cameraUrl} 
-                  alt="" 
+              <div className="flex-1 bg-slate-50/60 rounded-xl border border-slate-200 flex items-center justify-center relative overflow-hidden">
+                <img
+                  src={cameraUrl}
+                  alt=""
                   className="absolute inset-0 w-full h-full object-cover z-0 transition-opacity duration-300"
                   onError={(e) => {
                     e.currentTarget.style.opacity = '0';
@@ -540,10 +543,10 @@ export default function App() {
                   Camera Offline
                 </span>
                 <div className="absolute top-3 left-3 flex gap-2">
-                  <span className="bg-black/60 px-2 py-0.5 rounded text-[10px] text-white/70 backdrop-blur-sm">CAM-01 Living Room</span>
+                  <span className="bg-white/90 px-2 py-0.5 rounded text-[10px] text-[#0a2342]/70 backdrop-blur-sm">CAM-01 Living Room</span>
                 </div>
-                <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg">
-                  <span className="text-[10px] text-slate-400 block">FALL SCORE</span>
+                <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-lg">
+                  <span className="text-[10px] text-slate-600 block">FALL SCORE</span>
                   <span className={`text-lg font-bold ${fallScore > 0.5 ? 'text-rose-400' : fallScore > 0.2 ? 'text-amber-400' : 'text-emerald-400'}`}>
                     {(fallScore * 100).toFixed(0)}%
                   </span>
@@ -553,19 +556,19 @@ export default function App() {
 
             {/* IMU Motion Chart */}
             <div className="glass-panel p-5">
-              <h2 className="text-base font-semibold flex items-center gap-2 mb-3 text-slate-200">
-                <Zap className="w-4 h-4 text-blue-400" /> Wearable IMU Stream (Accelerometer)
+              <h2 className="text-base font-semibold flex items-center gap-2 mb-3 text-[#0a2342]">
+                <Zap className="w-4 h-4 text-[#f39c12]" /> Wearable IMU Stream (Accelerometer)
               </h2>
               <div className="h-44 w-full">
                 {hasMotionData ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={motionData}>
-                      <XAxis dataKey="time" stroke="#334155" fontSize={10} tickMargin={8} />
-                      <YAxis stroke="#334155" fontSize={10} domain={['auto', 'auto']} />
-                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '10px', fontSize: '12px' }} />
-                      <Line type="monotone" dataKey="ax" stroke="#3b82f6" strokeWidth={1.5} dot={false} isAnimationActive={false} name="Accel X" />
-                      <Line type="monotone" dataKey="ay" stroke="#10b981" strokeWidth={1.5} dot={false} isAnimationActive={false} name="Accel Y" />
-                      <Line type="monotone" dataKey="az" stroke="#8b5cf6" strokeWidth={1.5} dot={false} isAnimationActive={false} name="Accel Z" />
+                      <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tickMargin={8} />
+                      <YAxis stroke="#94a3b8" fontSize={10} domain={['auto', 'auto']} />
+                      <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '10px', fontSize: '12px' }} />
+                      <Line type="monotone" dataKey="ax" stroke="#0a2342" strokeWidth={1.5} dot={false} isAnimationActive={false} name="Accel X" />
+                      <Line type="monotone" dataKey="ay" stroke="#f39c12" strokeWidth={1.5} dot={false} isAnimationActive={false} name="Accel Y" />
+                      <Line type="monotone" dataKey="az" stroke="#27ae60" strokeWidth={1.5} dot={false} isAnimationActive={false} name="Accel Z" />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -581,23 +584,23 @@ export default function App() {
 
             {/* SMV Chart */}
             <div className="glass-panel p-5">
-              <h2 className="text-base font-semibold flex items-center gap-2 mb-3 text-slate-200">
-                <Activity className="w-4 h-4 text-violet-400" /> Signal Magnitude Vector (SMV)
+              <h2 className="text-base font-semibold flex items-center gap-2 mb-3 text-[#0a2342]">
+                <Activity className="w-4 h-4 text-[#6b4cc9]" /> Signal Magnitude Vector (SMV)
               </h2>
               <div className="h-32 w-full">
                 {hasMotionData ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={motionData}>
-                      <XAxis dataKey="time" stroke="#334155" fontSize={10} tickMargin={8} />
-                      <YAxis stroke="#334155" fontSize={10} domain={[0, 'auto']} />
-                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '10px', fontSize: '12px' }} />
+                      <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tickMargin={8} />
+                      <YAxis stroke="#94a3b8" fontSize={10} domain={[0, 'auto']} />
+                      <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '10px', fontSize: '12px' }} />
                       <defs>
                         <linearGradient id="smvGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4} />
                           <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <Area type="monotone" dataKey="smv" stroke="#8b5cf6" fill="url(#smvGrad)" strokeWidth={2} dot={false} isAnimationActive={false} name="SMV" />
+                      <Area type="monotone" dataKey="smv" stroke="#27ae60" fill="url(#smvGrad)" strokeWidth={2} dot={false} isAnimationActive={false} name="SMV" />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
@@ -628,10 +631,10 @@ export default function App() {
               {hasVitals ? (
                 <>
                   <div className="flex items-end gap-2">
-                    <span className="text-5xl font-black tracking-tighter text-white">{vitals.hr}</span>
+                    <span className="text-5xl font-black tracking-tighter text-[#0a2342]">{vitals.hr}</span>
                     <span className="text-rose-400/70 font-medium pb-1.5 text-base">BPM</span>
                   </div>
-                  <div className="mt-3 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div className={`h-full rounded-full transition-all duration-700 ${vitals.hr > 120 ? 'bg-gradient-to-r from-rose-600 to-red-400 animate-pulse' : 'bg-gradient-to-r from-rose-600 to-rose-400'}`} style={{ width: `${Math.min((vitals.hr / 160) * 100, 100)}%` }}></div>
                   </div>
                   {(vitals.hr > 120 || vitals.hr < 45) && (
@@ -644,19 +647,19 @@ export default function App() {
             </div>
 
             {/* Blood Oxygen */}
-            <div className={`glass-panel p-5 border-l-4 transition-colors duration-500 ${hasVitals && vitals.spo2 < 92 ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-cyan-500'}`}>
+            <div className={`glass-panel p-5 border-l-4 transition-colors duration-500 ${hasVitals && vitals.spo2 < 92 ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-[#27ae60]'}`}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-semibold flex items-center gap-2 text-cyan-200">
-                  <Thermometer className="w-4 h-4 text-cyan-500" /> Blood Oxygen (SpO₂)
+                  <Thermometer className="w-4 h-4 text-[#27ae60]" /> Blood Oxygen (SpO₂)
                 </h2>
               </div>
               {hasVitals ? (
                 <>
                   <div className="flex items-end gap-2">
-                    <span className="text-5xl font-black tracking-tighter text-white">{vitals.spo2}</span>
-                    <span className="text-cyan-400/70 font-medium pb-1.5 text-base">%</span>
+                    <span className="text-5xl font-black tracking-tighter text-[#0a2342]">{vitals.spo2}</span>
+                    <span className="text-[#27ae60]/70 font-medium pb-1.5 text-base">%</span>
                   </div>
-                  <div className="mt-3 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div className={`h-full rounded-full transition-all duration-700 ${vitals.spo2 < 92 ? 'bg-gradient-to-r from-amber-600 to-amber-400 animate-pulse' : 'bg-gradient-to-r from-cyan-600 to-cyan-400'}`} style={{ width: `${vitals.spo2}%` }}></div>
                   </div>
                   {vitals.spo2 < 92 && (
@@ -671,11 +674,11 @@ export default function App() {
             {/* Audio Distress */}
             <div className={`glass-panel p-5 border-l-4 transition-all duration-500 ${isAudioDistress ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-slate-700'}`}>
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-300">
+                <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-800">
                   {isAudioDistress ? <Volume2 className="w-4 h-4 text-amber-500" /> : <VolumeX className="w-4 h-4 text-slate-600" />}
                   Audio Distress
                 </h2>
-                <div className={`px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider ${isAudioDistress ? 'bg-amber-500 text-amber-950 animate-pulse' : 'bg-slate-800 text-slate-500'}`}>
+                <div className={`px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider ${isAudioDistress ? 'bg-amber-500 text-amber-950 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
                   {isAudioDistress ? 'DISTRESS DETECTED' : 'QUIET'}
                 </div>
               </div>
@@ -683,15 +686,15 @@ export default function App() {
 
             {/* Device Health */}
             <div className="glass-panel p-5">
-              <h2 className="text-sm font-semibold flex items-center gap-2 mb-3 text-slate-300">
-                <Cpu className="w-4 h-4 text-indigo-400" /> Device Health
+              <h2 className="text-sm font-semibold flex items-center gap-2 mb-3 text-slate-800">
+                <Cpu className="w-4 h-4 text-[#6b4cc9]" /> Device Health
               </h2>
               {devices.length > 0 ? devices.map(d => (
-                <div key={d.mac_address} className="flex items-center justify-between py-2 border-b border-slate-800/50 last:border-0">
+                <div key={d.mac_address} className="flex items-center justify-between py-2 border-b border-slate-200/50 last:border-0">
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${d.status === 'ONLINE' ? 'bg-emerald-400' : 'bg-slate-600'}`}></div>
                     <div>
-                      <p className="text-xs font-medium text-slate-300">{d.mac_address}</p>
+                      <p className="text-xs font-medium text-slate-800">{d.mac_address}</p>
                       <p className="text-[10px] text-slate-500">{d.device_type}</p>
                     </div>
                   </div>
@@ -699,10 +702,10 @@ export default function App() {
                     {d.device_type === 'WEARABLE' && (
                       <div className="flex items-center gap-1">
                         {d.battery_level > 20 ? <BatteryFull className="w-3.5 h-3.5 text-emerald-400" /> : <BatteryLow className="w-3.5 h-3.5 text-rose-400" />}
-                        <span className="text-[10px] text-slate-400">{d.battery_level}%</span>
+                        <span className="text-[10px] text-slate-600">{d.battery_level}%</span>
                       </div>
                     )}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${d.status === 'ONLINE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${d.status === 'ONLINE' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-100 text-slate-500'}`}>
                       {d.status}
                     </span>
                   </div>
@@ -716,13 +719,13 @@ export default function App() {
 
         {/* ═══ Event History Table ═══ */}
         <div className="glass-panel p-5">
-          <h2 className="text-base font-semibold flex items-center gap-2 mb-4 text-slate-200">
-            <History className="w-4 h-4 text-indigo-400" /> Event History
+          <h2 className="text-base font-semibold flex items-center gap-2 mb-4 text-[#0a2342]">
+            <History className="w-4 h-4 text-[#6b4cc9]" /> Event History
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-800">
+                <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="pb-2 pr-4 font-medium">Time</th>
                   <th className="pb-2 pr-4 font-medium">Event Type</th>
                   <th className="pb-2 pr-4 font-medium">Confidence</th>
@@ -732,22 +735,22 @@ export default function App() {
               <tbody>
                 {eventHistory.length > 0 ? (
                   [...eventHistory].reverse().map((ev, i) => (
-                    <tr key={i} className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors">
-                      <td className="py-2 pr-4 text-slate-400 flex items-center gap-1.5">
+                    <tr key={i} className="border-b border-slate-200/40 hover:bg-slate-100/30 transition-colors">
+                      <td className="py-2 pr-4 text-slate-600 flex items-center gap-1.5">
                         <Clock className="w-3 h-3" />
                         {formatTime(ev.timestamp)}
                       </td>
                       <td className="py-2 pr-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${ev.event_type.includes('MEDICAL') || ev.event_type.includes('EMERGENCY') ? 'bg-rose-500/20 text-rose-400' :
                           ev.event_type.includes('FALL') || ev.event_type.includes('SPIKE') ? 'bg-amber-500/20 text-amber-400' :
-                            ev.event_type.includes('AUDIO') ? 'bg-violet-500/20 text-violet-400' :
-                              'bg-slate-700 text-slate-400'
+                            ev.event_type.includes('AUDIO') ? 'bg-violet-500/20 text-[#6b4cc9]' :
+                              'bg-slate-700 text-slate-600'
                           }`}>
                           {ev.event_type}
                         </span>
                       </td>
-                      <td className="py-2 pr-4 text-slate-300 font-mono">{(ev.confidence * 100).toFixed(0)}%</td>
-                      <td className="py-2 text-slate-400">{ev.system_state}</td>
+                      <td className="py-2 pr-4 text-slate-800 font-mono">{(ev.confidence * 100).toFixed(0)}%</td>
+                      <td className="py-2 text-slate-600">{ev.system_state}</td>
                     </tr>
                   ))
                 ) : (

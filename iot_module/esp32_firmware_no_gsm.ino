@@ -73,10 +73,7 @@ int heartRate = 75;
 int spo2 = 98;
 int batteryLevel = 100;
 
-// ─── GSM Config ─────────────────────────────────
-HardwareSerial sim800(1);
-const char* EMERGENCY_PHONE = "+918827139859";
-
+// Removed GSM Config
 unsigned long lastMotionSend = 0;
 unsigned long lastVitalsSend = 0;
 unsigned long lastMovementTime = 0;
@@ -168,9 +165,6 @@ bool detectVoiceActivity() {
 void setup() {
     Serial.begin(115200);
     
-    // Init SIM800L (ESP32-C3 Pins: RX=0, TX=3)
-    // GPIO 2 is a critical STRAPPING PIN that halts boot if pulled low. We must avoid 2!
-    sim800.begin(9600, SERIAL_8N1, 0, 3);
     
     Wire.begin(SDA_PIN, SCL_PIN);
     
@@ -251,35 +245,6 @@ void readBattery() {
     // batteryLevel = constrain(map(voltage * 100, 310, 420, 0, 100), 0, 100);
     
     batteryLevel = 100; // Hardcoded default
-}
-
-// ─── GSM Fallback Alert ─────────────────────────
-void triggerGSMFallback() {
-    Serial.println("[GSM] CRITICAL: Triggering GSM Fallback! No Cloud/WiFi Connection.");
-    
-    // 1. Send SMS
-    sim800.println("AT+CMGF=1"); // Set SMS to Text Mode
-    delay(500);
-    sim800.print("AT+CMGS=\"");
-    sim800.print(EMERGENCY_PHONE);
-    sim800.println("\"");
-    delay(500);
-    sim800.print("EMERGENCY: Fall Detected! Patient is offline from cloud and needs immediate assistance.");
-    delay(500);
-    sim800.write(26); // Send CTRL+Z
-    Serial.println("[GSM] SMS Sent.");
-    delay(3000); // Give module time to process SMS
-    
-    // 2. Initiate Phone Call
-    sim800.print("ATD");
-    sim800.print(EMERGENCY_PHONE);
-    sim800.println(";");
-    Serial.println("[GSM] Calling caretaker...");
-    
-    // Wait for 20 seconds of ringing/call duration before hanging up
-    delay(20000); 
-    sim800.println("ATH"); // Hang up
-    Serial.println("[GSM] Call ended.");
 }
 
 // ─── Publish Motion Data ────────────────────────
@@ -396,19 +361,13 @@ void loop() {
             motionSpikeActive = true;
             Serial.println("[ALERT] Motion spike detected!");
             
-            // ── FALLBACK LOGIC ──
-            if (!isConnectedToCloud) {
-                // We have no way to reach the apps. Trigger cellular fallback immediately!
-                triggerGSMFallback();
-            } else {
-                // Normal Cloud Execution
-                Serial.println("Activating microphone...");
-                bool distress = detectVoiceActivity();
-                publishAudio(distress);
-                
-                if (distress) {
-                    Serial.println("[ALERT] Distress sound detected!");
-                }
+            // Normal Cloud Execution
+            Serial.println("Activating microphone...");
+            bool distress = detectVoiceActivity();
+            publishAudio(distress);
+            
+            if (distress) {
+                Serial.println("[ALERT] Distress sound detected!");
             }
             
             motionSpikeActive = false;
