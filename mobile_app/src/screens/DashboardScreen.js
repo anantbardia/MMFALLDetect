@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
-import { useTheme } from '@react-navigation/native';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useTheme, useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import notificationService from '../services/notificationService';
 import CameraFeed from '../components/CameraFeed';
@@ -12,10 +13,22 @@ export default function DashboardScreen() {
   
   const [baseUrl, setBaseUrl] = useState('https://mmfalldetect.onrender.com');
   const [cameraUrl, setCameraUrl] = useState('https://spiritual-depletion-squint.ngrok-free.dev');
-  
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
-  const [tempBaseUrl, setTempBaseUrl] = useState(baseUrl);
-  const [tempCameraUrl, setTempCameraUrl] = useState(cameraUrl);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadUrls = async () => {
+        try {
+          const savedBaseUrl = await AsyncStorage.getItem('baseUrl');
+          const savedCameraUrl = await AsyncStorage.getItem('cameraUrl');
+          if (savedBaseUrl) setBaseUrl(savedBaseUrl);
+          if (savedCameraUrl) setCameraUrl(savedCameraUrl);
+        } catch (e) {
+          console.error('Failed to load URLs in Dashboard', e);
+        }
+      };
+      loadUrls();
+    }, [])
+  );
 
   // System States
   const [wsConnected, setWsConnected] = useState(false);
@@ -224,12 +237,6 @@ export default function DashboardScreen() {
     };
   }, []);
 
-  const handleSaveUrl = () => {
-    setBaseUrl(tempBaseUrl);
-    setCameraUrl(tempCameraUrl);
-    setIsEditingUrl(false);
-  };
-
   const acknowledgeAlert = async () => {
     decisionEngine.acknowledge();
     setSystemState('NORMAL');
@@ -274,12 +281,7 @@ export default function DashboardScreen() {
       backgroundColor: colors.surface, borderRadius: 12, padding: 12,
       borderWidth: 1, borderColor: colors.border, marginBottom: 20
     },
-    urlInput: {
-      backgroundColor: colors.background, borderColor: colors.border, borderWidth: 1,
-      borderRadius: 8, padding: 10, color: colors.text, marginBottom: 8
-    },
-    urlButton: { backgroundColor: colors.primary, borderRadius: 8, padding: 10, alignItems: 'center' },
-    
+
     emergencyBanner: {
       backgroundColor: colors.danger + '10', borderColor: colors.danger, borderWidth: 2,
       borderRadius: 16, padding: 16, marginBottom: 20, alignItems: 'center'
@@ -329,34 +331,6 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* URL Configs */}
-      <View style={styles.configContainer}>
-        {isEditingUrl ? (
-          <View>
-            <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>Backend API URL (WebSockets)</Text>
-            <TextInput style={styles.urlInput} value={tempBaseUrl} onChangeText={setTempBaseUrl} placeholder="e.g. https://mmfalldetect.onrender.com" />
-            
-            <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>Camera Feed URL (Ngrok)</Text>
-            <TextInput style={styles.urlInput} value={tempCameraUrl} onChangeText={setTempCameraUrl} placeholder="e.g. https://xxxx.ngrok-free.dev" />
-            
-            <TouchableOpacity style={styles.urlButton} onPress={handleSaveUrl}>
-              <Text style={{ color: 'white', fontWeight: 'bold' }}>Save Configurations</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity onPress={() => setIsEditingUrl(true)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11, color: colors.textSecondary }}>Backend API URL</Text>
-              <Text style={{ fontSize: 13, color: colors.text, marginTop: 2, marginBottom: 8 }} numberOfLines={1}>{baseUrl}</Text>
-              
-              <Text style={{ fontSize: 11, color: colors.textSecondary }}>Camera Feed URL</Text>
-              <Text style={{ fontSize: 13, color: colors.text, marginTop: 2 }} numberOfLines={1}>{cameraUrl}</Text>
-            </View>
-            <Text style={{ color: colors.primary, fontWeight: 'bold', marginLeft: 10 }}>Edit</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
       {/* Emergency Banner */}
       {isEmergency && (
         <View style={styles.emergencyBanner}>
@@ -372,13 +346,7 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Live Camera Feed */}
-      <Text style={styles.sectionTitle}>Camera Feed</Text>
-      <View style={{ marginBottom: 16 }}>
-        <CameraFeed streamUrl={`${cameraUrl}/video_feed`} title="Primary Camera Node" />
-      </View>
-
-      {/* Vitals Grid */}
+      {/* Vitals Grid (Moved to top per request) */}
       <Text style={styles.sectionTitle}>Live Vitals & Sensors</Text>
       <View style={styles.grid}>
         <View style={styles.card}>
@@ -407,6 +375,12 @@ export default function DashboardScreen() {
             {isAudioDistress ? 'DETECTED' : 'QUIET'}
           </Text>
         </View>
+      </View>
+
+      {/* Live Camera Feed */}
+      <Text style={styles.sectionTitle}>Camera Feed</Text>
+      <View style={{ marginBottom: 16 }}>
+        <CameraFeed streamUrl={`${cameraUrl}/video_feed`} title="Primary Camera Node" />
       </View>
 
       {/* Device Health */}

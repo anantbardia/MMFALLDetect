@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Modal, SafeAreaView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function CameraFeed({ streamUrl, title }) {
   const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const styles = StyleSheet.create({
     container: {
@@ -84,33 +86,35 @@ export default function CameraFeed({ streamUrl, title }) {
 
       <View style={styles.videoWrapper}>
         {streamUrl && !error ? (
-          <WebView
-            style={styles.webview}
-            source={{ 
-              html: `
-                <html>
-                  <head>
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                  </head>
-                  <body style="margin: 0; padding: 0; background-color: black; display: flex; justify-content: center; align-items: center; height: 100vh;">
-                    <img src="${streamUrl}" style="width: 100%; height: 100%; object-fit: contain;" />
-                  </body>
-                </html>
-              `
-            }}
-            onLoadStart={() => setLoading(true)}
-            onLoadEnd={() => setLoading(false)}
-            onError={() => {
-              setError(true);
-              setLoading(false);
-            }}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            allowsInlineMediaPlayback={true}
-            mediaPlaybackRequiresUserAction={false}
-            scrollEnabled={false}
-            bounces={false}
-          />
+          <>
+            <WebView
+              style={styles.webview}
+              source={{ 
+                uri: streamUrl,
+                headers: { 'ngrok-skip-browser-warning': 'true' }
+              }}
+              userAgent="MMFALLDetectApp"
+              onLoadStart={() => setLoading(true)}
+              onLoadEnd={() => setLoading(false)}
+              onError={() => {
+                setError(true);
+                setLoading(false);
+              }}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
+              scrollEnabled={false}
+              bounces={false}
+              scalesPageToFit={true}
+            />
+            <TouchableOpacity 
+              onPress={() => setIsFullScreen(true)} 
+              style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20 }}
+            >
+              <Ionicons name="expand" size={20} color="white" />
+            </TouchableOpacity>
+          </>
         ) : (
           <Text style={styles.errorText}>No camera stream available</Text>
         )}
@@ -123,6 +127,34 @@ export default function CameraFeed({ streamUrl, title }) {
           />
         )}
       </View>
+
+      <Modal visible={isFullScreen} animationType="fade" transparent={false}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <WebView
+              style={{ flex: 1, backgroundColor: 'black' }}
+              source={{ 
+                uri: streamUrl,
+                headers: { 'ngrok-skip-browser-warning': 'true' }
+              }}
+              userAgent="MMFALLDetectApp"
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
+              scrollEnabled={false}
+              bounces={false}
+              scalesPageToFit={true}
+            />
+            <TouchableOpacity 
+              onPress={() => setIsFullScreen(false)} 
+              style={{ position: 'absolute', top: 20, right: 20, backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 20 }}
+            >
+              <Ionicons name="close" size={28} color="white" />
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }

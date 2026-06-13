@@ -10,6 +10,9 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
   const [pushEnabled, setPushEnabled] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [pushToken, setPushToken] = useState('Fetching token...');
+  const [baseUrl, setBaseUrl] = useState('https://mmfalldetect.onrender.com');
+  const [cameraUrl, setCameraUrl] = useState('https://spiritual-depletion-squint.ngrok-free.dev');
+  const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
     // Fetch logged in Firebase user details
@@ -28,7 +31,31 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
           else setPushToken('Unavailable (Requires Device)');
         });
     }
+
+    // Load URLs
+    const loadUrls = async () => {
+      try {
+        const savedBaseUrl = await AsyncStorage.getItem('baseUrl');
+        const savedCameraUrl = await AsyncStorage.getItem('cameraUrl');
+        if (savedBaseUrl) setBaseUrl(savedBaseUrl);
+        if (savedCameraUrl) setCameraUrl(savedCameraUrl);
+      } catch (e) {
+        console.error('Failed to load URLs', e);
+      }
+    };
+    loadUrls();
   }, []);
+
+  const handleSaveUrls = async () => {
+    try {
+      await AsyncStorage.setItem('baseUrl', baseUrl);
+      await AsyncStorage.setItem('cameraUrl', cameraUrl);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    } catch (e) {
+      console.error('Failed to save URLs', e);
+    }
+  };
 
   const handleShareToken = async () => {
     try {
@@ -113,6 +140,23 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
       color: colors.danger,
       fontSize: 16,
       fontWeight: 'bold',
+    },
+    urlInput: {
+      backgroundColor: colors.background,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: 10,
+      color: colors.text,
+      marginBottom: 12,
+      marginTop: 4,
+    },
+    saveButton: {
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      padding: 12,
+      alignItems: 'center',
+      marginTop: 4,
     }
   });
 
@@ -161,6 +205,32 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
             thumbColor={pushEnabled ? '#fff' : '#f4f3f4'}
           />
         </View>
+      </View>
+
+      {/* Network Configuration */}
+      <Text style={styles.sectionTitle}>Network Configuration</Text>
+      <View style={[styles.settingCard, { padding: 16 }]}>
+        <Text style={styles.settingText}>Backend API URL (WebSockets)</Text>
+        <TextInput 
+          style={styles.urlInput} 
+          value={baseUrl} 
+          onChangeText={setBaseUrl} 
+          placeholder="https://mmfalldetect.onrender.com" 
+          placeholderTextColor={colors.textSecondary}
+        />
+        
+        <Text style={styles.settingText}>Camera Feed URL (Ngrok)</Text>
+        <TextInput 
+          style={styles.urlInput} 
+          value={cameraUrl} 
+          onChangeText={setCameraUrl} 
+          placeholder="https://xxxx.ngrok-free.dev" 
+          placeholderTextColor={colors.textSecondary}
+        />
+        
+        <TouchableOpacity style={styles.saveButton} onPress={handleSaveUrls}>
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>{isSaved ? 'Saved!' : 'Save URLs'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Cloud Integration Push Token Info */}

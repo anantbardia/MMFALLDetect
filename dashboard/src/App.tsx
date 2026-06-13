@@ -3,7 +3,7 @@ import {
   Activity, Heart, Thermometer, ShieldAlert, CheckCircle2,
   AlertTriangle, UserX, UserCheck, Wifi, WifiOff,
   BatteryFull, BatteryLow, Clock, Zap, History, Cpu,
-  RefreshCcw, Volume2, VolumeX, Settings, Save
+  RefreshCcw, Volume2, VolumeX, Settings, Save, Maximize
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -552,7 +552,7 @@ export default function App() {
                 </div>
               )}
 
-              <div className="flex-1 bg-slate-50/60 rounded-xl border border-slate-200 flex items-center justify-center relative overflow-hidden">
+              <div className="flex-1 bg-slate-50/60 rounded-xl border border-slate-200 flex items-center justify-center relative overflow-hidden group">
                 <img
                   src={cameraUrl}
                   alt=""
@@ -568,6 +568,22 @@ export default function App() {
                     e.currentTarget.nextElementSibling?.classList.remove('flex');
                   }}
                 />
+                
+                {/* Fullscreen Button */}
+                <button
+                  onClick={(e) => {
+                    const parent = e.currentTarget.parentElement;
+                    if (!document.fullscreenElement) {
+                      parent?.requestFullscreen();
+                    } else {
+                      document.exitFullscreen();
+                    }
+                  }}
+                  className="absolute bottom-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition opacity-0 group-hover:opacity-100"
+                  title="Toggle Fullscreen"
+                >
+                  <Maximize size={20} />
+                </button>
                 <span className="text-slate-600 flex flex-col items-center gap-2 text-sm z-0 hidden">
                   <div className="w-2.5 h-2.5 bg-slate-700 rounded-full animate-pulse"></div>
                   Camera Offline
