@@ -84,7 +84,12 @@ export default function DashboardScreen() {
           
           // Fallback to backend system_state only if decision engine isn't overriding
           if (msg.system_state && decisionEngine.currentState === 'NORMAL') {
-            setSystemState(msg.system_state);
+            setSystemState(prev => {
+              if (prev === 'FALL_CONFIRMED' && msg.system_state !== 'FALL_CONFIRMED') {
+                return prev; // Latch until manually acknowledged!
+              }
+              return msg.system_state;
+            });
           }
         } catch (e) {
           console.log('Parse error:', e);
@@ -213,6 +218,7 @@ export default function DashboardScreen() {
 
   const acknowledgeAlert = async () => {
     decisionEngine.acknowledge();
+    setSystemState('NORMAL');
     try {
       await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
