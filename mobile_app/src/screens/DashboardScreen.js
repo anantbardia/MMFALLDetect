@@ -81,6 +81,20 @@ export default function DashboardScreen() {
             }
             decisionEngine.updateCVData(msg);
           }
+
+          // Read Vitals from WebSocket heartbeat/iot_update as a fallback to direct MQTT
+          if (msg.type === 'heartbeat') {
+            if (msg.vitals && (msg.vitals.heart_rate !== 75 || msg.vitals.spo2 !== 98)) {
+              setHasVitals(true);
+              setVitals({ hr: msg.vitals.heart_rate, spo2: msg.vitals.spo2 });
+            }
+          }
+          if (msg.type === 'iot_update' && msg.data) {
+            if (msg.data.heart_rate || msg.data.spo2) {
+              setHasVitals(true);
+              setVitals(v => ({ hr: msg.data.heart_rate ?? v.hr, spo2: msg.data.spo2 ?? v.spo2 }));
+            }
+          }
           
           // Fallback to backend system_state only if decision engine isn't overriding
           if (msg.system_state && decisionEngine.currentState === 'NORMAL') {
