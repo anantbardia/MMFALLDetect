@@ -43,6 +43,14 @@ class DecisionEngine:
         self.latest_audio = {"distress_sound_detected": False}
         self.latest_fall_score = 0.0
         
+        # ── Vitals connected flag (only evaluate vitals rules when real data received) ──
+        self.vitals_connected = False
+        
+        # ── CV Fall Debounce (require N events in window to prevent single-frame glitches) ──
+        self.cv_fall_event_times = []  # timestamps of recent CV fall events
+        self.CV_DEBOUNCE_COUNT = 3     # need 3 CV fall events
+        self.CV_DEBOUNCE_WINDOW = 2.0  # within 2 seconds
+        
         # ── Configuration thresholds ──
         self.TIME_SYNC_WINDOW = 3.0       # seconds between CV and Accel events
         self.INACTIVITY_TIMEOUT = 10.0    # seconds of no movement to confirm fall
@@ -131,7 +139,16 @@ class DecisionEngine:
         if fall_predicted:
             self.last_cv_fall_time = current_time
             self.last_cv_confidence = confidence
-            self._log_event("CV_FALL_PREDICTED", confidence, event)
+            
+            # Debounce: track timestamps of CV fall events
+            self.cv_fall_event_times.append(current_time)
+            # Only keep events within the debounce window
+            self.cv_fall_event_times = [t for t in self.cv_fall_event_times 
+                                        if (current_time - t) < self.CV_DEBOUNCE_WINDOW]
+            
+            if len(self.cv_fall_event_times) >= self.CV_DEBOUNCE_COUNT:
+                self._log_event("CV_FALL_PREDICTED", confidence, event)
+            # else: too few events, don't log yet (noise filtering)
             
         return self._evaluate_fusion_rules(current_time)
 
@@ -165,8 +182,12 @@ class DecisionEngine:
         spo2 = event.get("spo2")
         if hr is not None:
             self.latest_vitals["heart_rate"] = hr
+            if hr != 75:  # Not the default placeholder
+                self.vitals_connected = True
         if spo2 is not None:
             self.latest_vitals["spo2"] = spo2
+            if spo2 != 98:  # Not the default placeholder
+                self.vitals_connected = True
         
         # ── Audio ──
         if event.get("distress_sound_detected", False):
@@ -234,10 +255,17 @@ class DecisionEngine:
                 )
                 self.hardware_confirmed_fall = False
                 current_state = SystemState.FALL_CONFIRMED
-            elif cv_recent or accel_recent:
+            elif cv_recent and len(self.cv_fall_event_times) >= self.CV_DEBOUNCE_COUNT:
+                # Only transition if we have enough debounced CV events
                 self.state_manager.transition_to(
                     SystemState.POSSIBLE_FALL, 
-                    f"Initial fall indicator (score={fall_score:.2f})"
+                    f"CV fall debounced ({len(self.cv_fall_event_times)} events, score={fall_score:.2f})"
+                )
+                current_state = SystemState.POSSIBLE_FALL
+            elif accel_recent:
+                self.state_manager.transition_to(
+                    SystemState.POSSIBLE_FALL, 
+                    f"Accel spike detected (score={fall_score:.2f})"
                 )
                 current_state = SystemState.POSSIBLE_FALL
                 
@@ -258,8 +286,8 @@ class DecisionEngine:
                 # Person visible: use CV + wearable fusion
                 time_diff = abs(self.last_cv_fall_time - self.last_accel_spike_time)
                 
-                # Presentation & Live Demo Rule: Confirm immediately if camera detects a fall with >= 50% confidence
-                if self.last_cv_confidence >= 0.50 and (current_time - self.last_cv_fall_time) < 3.0:
+                # Presentation & Live Demo Rule: Confirm if camera detects fall with >= 80% confidence
+                if self.last_cv_confidence >= 0.80 and (current_time - self.last_cv_fall_time) < 3.0:
                     self.state_manager.transition_to(
                         SystemState.FALL_CONFIRMED,
                         f"Camera-only fall confirmed (Confidence={self.last_cv_confidence:.0%})"
@@ -287,8 +315,8 @@ class DecisionEngine:
                         "Wearable spike + inactivity (outside camera)"
                     )
                     
-            # Recovery from false alarm: movement resumes
-            if inactivity_duration < 2.0 and (current_time - max(self.last_cv_fall_time, self.last_accel_spike_time)) > 5.0:
+            # Recovery from false alarm: movement resumes (extended hold time to 15s)
+            if inactivity_duration < 2.0 and (current_time - max(self.last_cv_fall_time, self.last_accel_spike_time)) > 15.0:
                 self.state_manager.transition_to(SystemState.NORMAL, "Normal movement resumed, false alarm")
 
         # ── Rule 3: FALL_CONFIRMED → MEDICAL_ALERT (spec §10) ──
@@ -296,12 +324,17 @@ class DecisionEngine:
         if current_state == SystemState.FALL_CONFIRMED:
             audio_recent = (current_time - self.last_audio_distress_time) < 5.0
             
-            is_medical = (
-                spo2 < self.CRITICAL_SPO2 or
-                hr > self.CRITICAL_HR_HIGH or
-                hr < self.CRITICAL_HR_LOW or
-                audio_recent
-            )
+            # Only evaluate vitals for medical alert if we have a real sensor connection
+            is_medical = False
+            if self.vitals_connected:
+                is_medical = (
+                    spo2 < self.CRITICAL_SPO2 or
+                    hr > self.CRITICAL_HR_HIGH or
+                    hr < self.CRITICAL_HR_LOW or
+                    audio_recent
+                )
+            elif audio_recent:
+                is_medical = True  # Audio distress alone can trigger medical alert
             
             if is_medical:
                 reasons = []

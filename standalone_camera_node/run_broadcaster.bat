@@ -24,17 +24,21 @@ if not exist "venv" (
 
 echo [2/3] Installing Pristine Dependencies (This may take a moment on first run)...
 call venv\Scripts\activate
-pip install mediapipe==0.10.14 opencv-python fastapi uvicorn requests -q
+pip install mediapipe==0.10.14 opencv-python fastapi uvicorn requests ollama -q
 
 echo.
-echo [3/4] Downloading MediaPipe Pose Model (if missing)...
+echo [3/5] Pulling LLaVA AI Model (this may take a moment on first run)...
+ollama pull llava
+
+echo.
+echo [4/5] Downloading MediaPipe Pose Model (if missing)...
 if not exist "pose_landmarker_lite.task" (
     powershell -Command "Invoke-WebRequest -Uri 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' -OutFile 'pose_landmarker_lite.task'"
     echo [✓] Downloaded pose_landmarker_lite.task
 )
 
 echo.
-echo [4/4] Launching Fast MJPEG Camera Server...
+echo [5/5] Launching Fast MJPEG Camera Server...
 :: Use "start" to run it in a separate window so the script can continue
 start "CV Stream Server" cmd /c "call venv\Scripts\activate && python stream_server.py & pause"
 
@@ -43,6 +47,6 @@ echo Launching Ngrok Tunnel on port 8001...
 echo [✓] Custom Domain: crouch-trapped-stock.ngrok-free.dev
 echo.
 :: Run ngrok in this window using the specific domain
-ngrok http --domain=crouch-trapped-stock.ngrok-free.dev 8001
+ngrok http --domain=crouch-trapped-stock.ngrok-free.dev 127.0.0.1:8001
 
 pause

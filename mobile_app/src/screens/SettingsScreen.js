@@ -11,7 +11,7 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [pushToken, setPushToken] = useState('Fetching token...');
   const [baseUrl, setBaseUrl] = useState('https://mmfalldetect.onrender.com');
-  const [cameraUrl, setCameraUrl] = useState('https://spiritual-depletion-squint.ngrok-free.dev');
+  const [cameraUrl, setCameraUrl] = useState('https://crouch-trapped-stock.ngrok-free.dev');
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
@@ -52,6 +52,7 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
       await AsyncStorage.setItem('cameraUrl', cameraUrl);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2000);
+      import('react-native').then(rn => rn.Alert.alert('Settings Saved', 'Please restart the app for the new URLs to take effect.'));
     } catch (e) {
       console.error('Failed to save URLs', e);
     }
@@ -142,14 +143,15 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
       fontWeight: 'bold',
     },
     urlInput: {
-      backgroundColor: colors.background,
-      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderColor: colors.primary,
       borderWidth: 1,
       borderRadius: 8,
-      padding: 10,
+      padding: 12,
       color: colors.text,
-      marginBottom: 12,
+      marginBottom: 16,
       marginTop: 4,
+      fontSize: 14,
     },
     saveButton: {
       backgroundColor: colors.primary,

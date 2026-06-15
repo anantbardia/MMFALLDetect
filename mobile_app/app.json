@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Fall-o-Up",
-    "slug": "mobile_app",
+    "slug": "fall-o-up",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -23,7 +23,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "50ef0b19-5b83-4441-b0fe-8b87591e6c28"
+        "projectId": "490de359-f20b-4151-b586-fd2ea5a8eedf"
       }
     }
   }

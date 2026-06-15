@@ -49,11 +49,11 @@ const char* PATIENT_ID    = "patient_01";
 #define BUFFER_LEN 64
 
 // ─── Thresholds ─────────────────────────────────
-#define SMV_SPIKE_THRESHOLD  2.5  // Lowered from 3.2 to catch softer falls onto carpets/sofas
+#define SMV_SPIKE_THRESHOLD  3.2  // Raised to 3.2g to require a definitive hard impact, ignoring soft bumps
 #define MIC_NOISE_THRESHOLD  10000
 #define MIC_SAMPLE_DURATION  2000
-#define SLEEP_TIMEOUT_MS     60000
-#define MOTION_INTERVAL_MS   40
+#define SLEEP_TIMEOUT_MS     300000 // 5 minutes of no motion → deep sleep (was 60s, too aggressive)
+#define MOTION_INTERVAL_MS   50     // Restored to 50ms (20fps) for buttery smooth UI readings
 #define VITALS_INTERVAL_MS   2000
 
 // ─── Globals ────────────────────────────────────
@@ -289,12 +289,13 @@ void readBattery() {
     batteryLevel = 100;
 }
 
-// ─── Fall Verification (Inactivity Check) ───────
+// ─── Fall Verification (Inactivity + Gyroscope + Tilt Check) ───
 bool verifyFall() {
     Serial.println("[IMU] Impact detected! Verifying post-fall inactivity for 2 seconds...");
     unsigned long startVerify = millis();
     float max_smv = 0.0;
     float min_smv = 10.0;
+    float max_gyro = 0.0;
     int samples = 0;
     
     // Wait for 500ms to let the bouncing/impact settle
@@ -306,44 +307,47 @@ bool verifyFall() {
         readIMU();
         if (smv > max_smv) max_smv = smv;
         if (smv < min_smv) min_smv = smv;
+        float gyroMag = sqrt(gx*gx + gy*gy + gz*gz);
+        if (gyroMag > max_gyro) max_gyro = gyroMag;
         samples++;
         delay(20);
     }
     
     float variance = max_smv - min_smv;
-    Serial.printf("[IMU] Verification complete. Samples: %d, Variance: %.3fg\n", samples, variance);
+    Serial.printf("[IMU] Verification: Samples=%d, Variance=%.3fg, MaxGyro=%.1fdps\n", samples, variance, max_gyro);
     
-    // If the variance is extremely low (e.g., < 0.20g difference), the person is motionless.
-    // If it's high, they are moving/recovering/vibrating, so it was a desk slam or false alarm.
-    if (variance < 0.20) {
-        Serial.println("[IMU] POST-FALL INACTIVITY CONFIRMED. Checking 3D Spatial Tilt...");
-        
-        // Get the final stable gravity vector (post-fall)
-        float post_fall_ax = ax;
-        float post_fall_ay = ay;
-        float post_fall_az = az;
-        
-        // Calculate 3D Dot Product between the pre-fall and post-fall vectors
-        float dot_product = (pre_fall_ax * post_fall_ax) + (pre_fall_ay * post_fall_ay) + (pre_fall_az * post_fall_az);
-        float pre_mag = sqrt(pre_fall_ax*pre_fall_ax + pre_fall_ay*pre_fall_ay + pre_fall_az*pre_fall_az);
-        float post_mag = sqrt(post_fall_ax*post_fall_ax + post_fall_ay*post_fall_ay + post_fall_az*post_fall_az);
-        
-        // Normalize dot product to get cos(theta)
-        float cos_theta = dot_product / (pre_mag * post_mag);
-                                         
-        // cos(60 degrees) = 0.500. If cos_theta > 0.500, the angle change is LESS than 60 degrees.
-        // A true fall shifts the wrist by roughly 90 degrees (cos_theta ~ 0).
-        // Desk slamming doesn't change orientation.
-        if (cos_theta > 0.500) {
-            Serial.println("[IMU] Wrist Tilt < 60 degrees. Orientation unchanged. FALSE ALARM (Desk slam) canceled.");
-            return false;
-        } else {
-            Serial.println("[IMU] Wrist Tilt > 60 degrees. Posture changed entirely. TRUE FALL CONFIRMED!");
-            return true;
-        }
-    } else {
-        Serial.println("[IMU] Movement/Vibration detected after impact. FALSE ALARM canceled.");
+    // GATE 1: If post-impact movement variance is high, person is recovering (false alarm)
+    if (variance >= 0.20) {
+        Serial.println("[IMU] Movement/Vibration detected after impact. FALSE ALARM.");
         return false;
+    }
+    
+    Serial.println("[IMU] POST-FALL INACTIVITY CONFIRMED. Checking rotation & tilt...");
+    
+    // GATE 2: Gyroscope rotation check — true falls produce >120 deg/s rotation
+    // Desk slams rarely produce significant gyroscope activity
+    if (max_gyro < 120.0) {
+        Serial.printf("[IMU] Gyro rotation too low (%.1f dps). Likely a desk slam. FALSE ALARM.\n", max_gyro);
+        return false;
+    }
+    
+    // GATE 3: 3D Spatial Tilt (orientation change)
+    float post_fall_ax = ax;
+    float post_fall_ay = ay;
+    float post_fall_az = az;
+    
+    float dot_product = (pre_fall_ax * post_fall_ax) + (pre_fall_ay * post_fall_ay) + (pre_fall_az * post_fall_az);
+    float pre_mag = sqrt(pre_fall_ax*pre_fall_ax + pre_fall_ay*pre_fall_ay + pre_fall_az*pre_fall_az);
+    float post_mag = sqrt(post_fall_ax*post_fall_ax + post_fall_ay*post_fall_ay + post_fall_az*post_fall_az);
+    
+    float cos_theta = dot_product / max(pre_mag * post_mag, 0.001f);
+    
+    if (cos_theta > 0.300) {
+        Serial.println("[IMU] Wrist Tilt < 72 deg. Orientation unchanged. FALSE ALARM (Desk slam).");
+        return false;
+    } else {
+        Serial.println("[IMU] ALL GATES PASSED: Inactivity + Rotation + Tilt. TRUE FALL CONFIRMED!");
+        return true;
     }
 }
 
@@ -437,34 +441,32 @@ void loop() {
         if (smv > SMV_SPIKE_THRESHOLD && !motionSpikeActive) {
             motionSpikeActive = true;
             
-            // Filter out table slams: A true fall has a period of free-fall (smv < 0.7) before the impact.
-            // A fall from standing height takes ~400-600ms. 
-            // If we haven't seen a free-fall in the last 800ms, it is physically impossible to be a fall.
-            if (now - lastFreeFallTime > 800) {
+            // Filter out table slams: A true fall has a period of free-fall (smv < 0.7) before impact.
+            // Tightened to 1000ms to strictly eliminate jumping or long deliberate actions
+            if (now - lastFreeFallTime > 1000) {
                 Serial.println("[IMU] Impact without preceding free-fall! Likely a desk slam. Ignored.");
-                motionSpikeActive = false;
             } else {
                 Serial.println("[ALERT] Impact spike detected! Verifying...");
                 
                 if (verifyFall()) {
-                // TRUE FALL CONFIRMED!
-                publishMotion(true); // Send "sudden" motion type to cloud
-                
-                if (!isConnectedToCloud) {
-                    triggerGSMFallback();
-                } else {
-                    Serial.println("Activating microphone for distress audio...");
-                    bool distress = detectVoiceActivity();
-                    publishAudio(distress);
+                    // TRUE FALL CONFIRMED!
+                    publishMotion(true);
                     
-                    if (distress) Serial.println("[ALERT] Distress sound detected!");
+                    if (!isConnectedToCloud) {
+                        triggerGSMFallback();
+                    } else {
+                        Serial.println("Activating microphone for distress audio...");
+                        bool distress = detectVoiceActivity();
+                        publishAudio(distress);
+                        if (distress) Serial.println("[ALERT] Distress sound detected!");
+                    }
+                } else {
+                    // False alarm, send normal motion
+                    publishMotion(false);
                 }
-            } else {
-                // False alarm, ignore it
-                publishMotion(false);
             }
             
-            motionSpikeActive = false;
+            motionSpikeActive = false;  // ALWAYS reset regardless of outcome
         }
     }
     

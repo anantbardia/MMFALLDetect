@@ -50,7 +50,7 @@ class FallDetector:
         # ── Velocity tracking (spec §5: rapid downward movement) ──
         self.prev_head_y = None
         self.prev_frame_time = time.time()
-        self.velocity_history = deque(maxlen=10)  # recent vertical velocities
+        self.velocity_history = deque(maxlen=20)  # ~0.66s at 30fps
         self.VELOCITY_THRESHOLD = 0.8  # normalized pixels/second for fall detection
         
         # ── Inactivity tracking (spec §5: person motionless after fall) ──
@@ -68,7 +68,7 @@ class FallDetector:
         # ── Smoothing Filters ──
         self.smoothed_torso_angle = None
         self.smoothed_knee_angle = None
-        self.ALPHA = 0.2  # Smoothing factor (lower = smoother but slower to react)
+        self.ALPHA = 0.5  # Balanced: reacts quickly but filters single-frame noise
         
     def calculate_bbox_ratio(self, landmarks, image_width, image_height):
         """Calculate height-to-width ratio of the body bounding box.
@@ -227,12 +227,19 @@ class FallDetector:
             is_fall = False
             confidence = 0.0
             
-            # Maintain fall latch for a few seconds to avoid flickering
+            # Maintain fall latch for 5 seconds to avoid flickering
             if self.fall_confirmed_latch and (current_time - self.fall_latch_time < 5.0):
-                self.current_posture_state = "FALL DETECTED"
-                return True, 0.99
+                # Check for recovery: strong upward velocity means person is standing up
+                min_recent_vel = min(list(self.velocity_history) + [0])
+                if (min_recent_vel / bbox_height) < -0.08:  # Upward movement
+                    self.fall_confirmed_latch = False
+                    self.velocity_history.clear()
+                else:
+                    self.current_posture_state = "FALL DETECTED"
+                    return True, 0.99
             elif self.fall_confirmed_latch:
                 self.fall_confirmed_latch = False
+                self.velocity_history.clear()  # Decay old velocities on latch expiry
             
             # State Machine Logic
             if self.smoothed_torso_angle > 50.0:
@@ -245,10 +252,12 @@ class FallDetector:
                 else:
                     # Femur vertical height is long -> STANDING
                     self.current_posture_state = "STANDING"
+            elif self.smoothed_torso_angle > 30.0 and head_y < hip_y:
+                # BENDING GATE: 30-50° torso with head still above hips
+                self.current_posture_state = "BENDING"
             else:
-                # Torso is horizontal (angle < 50)
+                # Torso is horizontal (angle < 30, or < 50 with head at/below hips)
                 if is_close_up:
-                    # STRICT GATE: Face is huge on camera. This is a person holding the camera or right in front of it.
                     self.current_posture_state = "STANDING"
                 elif has_rapid_drop and is_physically_flat:
                     # Rapid normalized drop AND head is close to the floor -> TRUE FALL!
@@ -258,7 +267,7 @@ class FallDetector:
                     is_fall = True
                     confidence = 0.98
                 else:
-                    # Slow transition OR lying on a high bed -> RESTING
+                    # Slow transition OR lying on furniture -> RESTING
                     self.current_posture_state = "SLEEPING"
             
             if is_fall:
@@ -373,10 +382,10 @@ class FallDetector:
                     requests.post(
                         f"{self.backend_url}/api/v1/events/cv/{self.patient_id}", 
                         json=payload, 
-                        timeout=1.0,
+                        timeout=5.0,
                     )
                 except Exception as e:
-                    pass  # Don't spam console with connection errors
+                    print(f"[Network] Backend event failed: {e}")
             threading.Thread(target=_post, daemon=True).start()
 
 

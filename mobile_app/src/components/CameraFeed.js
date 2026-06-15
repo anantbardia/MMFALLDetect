@@ -117,22 +117,20 @@ export default function CameraFeed({ streamUrl, title }) {
         )}
       </View>
 
-      <Modal visible={isFullScreen} animationType="fade" transparent={false}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
-          <View style={{ flex: 1, justifyContent: 'center' }}>
-            <Image
-              style={{ flex: 1, width: '100%', height: '100%', backgroundColor: 'black' }}
-              source={{ uri: streamUrl }}
-              resizeMode="contain"
-            />
-            <TouchableOpacity 
-              onPress={() => setIsFullScreen(false)} 
-              style={{ position: 'absolute', top: 40, right: 20, backgroundColor: 'rgba(255,255,255,0.3)', padding: 10, borderRadius: 30, zIndex: 999, elevation: 10 }}
-            >
-              <Ionicons name="close" size={28} color="white" />
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
+      <Modal visible={isFullScreen} animationType="fade" transparent={false} onRequestClose={() => setIsFullScreen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
+          <Image
+            style={{ width: '100%', height: '100%', backgroundColor: 'black' }}
+            source={{ uri: streamUrl }}
+            resizeMode="contain"
+          />
+          <TouchableOpacity 
+            onPress={() => setIsFullScreen(false)} 
+            style={{ position: 'absolute', top: 50, right: 20, backgroundColor: 'rgba(255,255,255,0.3)', padding: 10, borderRadius: 30, zIndex: 9999, elevation: 15 }}
+          >
+            <Ionicons name="close" size={28} color="white" />
+          </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );

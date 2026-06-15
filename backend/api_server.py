@@ -13,6 +13,9 @@ from typing import Dict, Any, List
 
 from core.decision_engine import DecisionEngine
 from core.state_manager import SystemState
+from pydantic import BaseModel
+import requests
+import threading
 
 app = FastAPI(
     title="Multi-Modal Fall Detection API",
@@ -33,6 +36,7 @@ app.add_middleware(
 # ──────────────────────────────────────────────
 engines: Dict[str, DecisionEngine] = {}
 active_connections: Dict[str, List[WebSocket]] = {}
+patient_push_tokens: Dict[str, str] = {}
 
 # Simulated device registry (in production, this comes from DB)
 device_registry: Dict[str, Dict[str, Any]] = {
@@ -59,6 +63,38 @@ def get_engine(patient_id: str) -> DecisionEngine:
         engines[patient_id] = DecisionEngine(patient_id)
         active_connections[patient_id] = []
     return engines[patient_id]
+
+
+def send_expo_push_notification(patient_id: str, title: str, body: str, data: dict = None):
+    token = patient_push_tokens.get(patient_id)
+    if not token:
+        return
+    
+    def _send():
+        try:
+            response = requests.post(
+                "https://exp.host/--/api/v2/push/send",
+                json={
+                    "to": token,
+                    "title": title,
+                    "body": body,
+                    "data": data or {},
+                    "sound": "default",
+                    "priority": "high",
+                    "_displayInForeground": True
+                },
+                headers={
+                    "Accept": "application/json",
+                    "Accept-encoding": "gzip, deflate",
+                    "Content-Type": "application/json",
+                },
+                timeout=5.0
+            )
+            print(f"Expo Push Response: {response.status_code} - {response.text}")
+        except Exception as e:
+            print(f"Failed to send Expo push notification: {e}")
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 # ──────────────────────────────────────────────
@@ -97,6 +133,7 @@ async def live_feed_websocket(websocket: WebSocket, patient_id: str):
 async def receive_cv_event(patient_id: str, event: Dict[str, Any]):
     """Receive a Computer Vision event from the CV edge module."""
     engine = get_engine(patient_id)
+    old_state = engine.state_manager.get_current_state()
     
     # Update camera device last_seen
     for d in device_registry.values():
@@ -105,6 +142,15 @@ async def receive_cv_event(patient_id: str, event: Dict[str, Any]):
             d["is_active"] = True
     
     new_state = engine.process_cv_event(event)
+    
+    if new_state == "FALL_CONFIRMED" and old_state != "FALL_CONFIRMED":
+        send_expo_push_notification(
+            patient_id, 
+            "CRITICAL ALERT: Fall Detected", 
+            "A fall has been confirmed via computer vision. Please check the dashboard immediately.",
+            {"event": "fall_confirmed", "source": "cv"}
+        )
+
     await broadcast_event(patient_id, {
         "type": "cv_update", 
         "data": event, 
@@ -118,6 +164,7 @@ async def receive_cv_event(patient_id: str, event: Dict[str, Any]):
 async def receive_iot_event(patient_id: str, event: Dict[str, Any]):
     """Receive a Wearable IoT event (motion + vitals + audio)."""
     engine = get_engine(patient_id)
+    old_state = engine.state_manager.get_current_state()
     
     # Update wearable device last_seen and battery
     for d in device_registry.values():
@@ -129,6 +176,15 @@ async def receive_iot_event(patient_id: str, event: Dict[str, Any]):
     
     # Uses engine's internal is_person_visible (context-aware, spec §8)
     new_state = engine.process_iot_event(event)
+
+    if new_state == "FALL_CONFIRMED" and old_state != "FALL_CONFIRMED":
+        send_expo_push_notification(
+            patient_id, 
+            "CRITICAL ALERT: Fall Detected", 
+            "A fall has been confirmed via the wearable device. Please check the dashboard immediately.",
+            {"event": "fall_confirmed", "source": "iot"}
+        )
+
     await broadcast_event(patient_id, {
         "type": "iot_update", 
         "data": event, 
@@ -168,6 +224,17 @@ async def get_devices():
             "status": "ONLINE" if (now - d["last_seen"]) < 30 else "OFFLINE",
         })
     return {"devices": devices}
+
+
+class PushTokenPayload(BaseModel):
+    patient_id: str
+    token: str
+
+@app.post("/api/v1/notifications/register")
+async def register_push_token(payload: PushTokenPayload):
+    patient_push_tokens[payload.patient_id] = payload.token
+    print(f"Registered push token for {payload.patient_id}: {payload.token}")
+    return {"status": "ok"}
 
 
 # ──────────────────────────────────────────────

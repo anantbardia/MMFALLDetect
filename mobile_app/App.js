@@ -38,15 +38,23 @@ export default function App() {
     loadTheme();
 
     // 2. Subscribe to Firebase Authentication changes
-    const unsubscribeAuth = subscribeToAuthChanges((currentUser) => {
+    const unsubscribeAuth = subscribeToAuthChanges(async (currentUser) => {
       setUser(currentUser);
       setIsAuthLoading(false);
+      
+      if (currentUser) {
+        let baseUrl = 'https://mmfalldetect.onrender.com';
+        try {
+          const storedUrl = await AsyncStorage.getItem('baseUrl');
+          if (storedUrl) baseUrl = storedUrl;
+        } catch(e) {}
+        
+        const patientId = 'patient_01'; // Default for the prototype
+        notificationService.registerForPushNotificationsAsync(patientId, baseUrl);
+      }
     });
 
-    // 3. Register for push notifications
-    notificationService.registerForPushNotificationsAsync();
-    
-    // 4. Setup notification listeners
+    // 3. Setup notification listeners
     notificationService.setupListeners((notification) => {
       console.log('Received notification data:', notification.request.content.data);
     });

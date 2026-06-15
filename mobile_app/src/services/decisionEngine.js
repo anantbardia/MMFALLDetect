@@ -11,25 +11,30 @@ class DecisionEngine {
     this.iotFallTime = 0;
     this.cvFallTime = 0;
     
+    // CV-only debounce: require N consecutive CV fall events
+    this.cvFallEventCount = 0;
+    this.CV_DEBOUNCE_COUNT = 2;
+    
     this.onStateChange = null; // Callback for UI updates
     
     // Config
     this.ACTIVE_TIMEOUT_MS = 15000; // If no data for 15s, module is considered inactive
     this.FUSION_WINDOW_MS = 5000;   // How close IoT and CV falls must be to trigger Rule B
-    this.SMV_FALL_THRESHOLD = 2.5;  // g-force threshold for a fall
     this.CV_FALL_THRESHOLD = 0.8;   // Confidence score threshold for CV fall
     
     this.currentState = 'NORMAL';
+    
+    // Notification cooldown (prevent spam)
+    this.lastNotificationTime = 0;
+    this.NOTIFICATION_COOLDOWN_MS = 60000; // 60 seconds
   }
 
   updateIoTData(data) {
     this.lastIotData = data;
     this.lastIotTime = Date.now();
     
-    // Evaluate IoT Fall
-    // data payload: {"ax":..., "ay":..., "az":..., "smv":..., "motion": "sudden"|"normal"}
     let isIotFall = false;
-    if (data.motion === 'sudden' || (data.smv && data.smv > this.SMV_FALL_THRESHOLD)) {
+    if (data.motion === 'sudden') {
       isIotFall = true;
       this.iotFallTime = Date.now();
     }
@@ -41,12 +46,14 @@ class DecisionEngine {
     this.lastCvData = data;
     this.lastCvTime = Date.now();
     
-    // Evaluate CV Fall
-    // data payload: {"system_state": "FALL_CONFIRMED", "fall_score": 0.85, ...}
     let isCvFall = false;
     if (data.system_state === 'FALL_CONFIRMED' || (data.fall_score && data.fall_score >= this.CV_FALL_THRESHOLD)) {
       isCvFall = true;
       this.cvFallTime = Date.now();
+      this.cvFallEventCount++;
+    } else {
+      // Reset consecutive counter on non-fall CV event
+      this.cvFallEventCount = 0;
     }
     
     this.evaluateFall();
@@ -73,8 +80,8 @@ class DecisionEngine {
         fallConfirmed = true;
       }
     } else if (!isIotActive && isCvActive) {
-      // Only CV active
-      if (recentCvFall) {
+      // Only CV active: require debounced consecutive events
+      if (recentCvFall && this.cvFallEventCount >= this.CV_DEBOUNCE_COUNT) {
         fallConfirmed = true;
       }
     }
@@ -92,6 +99,7 @@ class DecisionEngine {
   acknowledge() {
     this.iotFallTime = 0;
     this.cvFallTime = 0;
+    this.cvFallEventCount = 0;
     this.setState('NORMAL');
   }
 
@@ -105,6 +113,14 @@ class DecisionEngine {
   }
 
   triggerAlarm() {
+    const now = Date.now();
+    // Cooldown: suppress duplicate notifications within 60s
+    if (now - this.lastNotificationTime < this.NOTIFICATION_COOLDOWN_MS) {
+      console.log('[DecisionEngine] Alarm suppressed (cooldown active)');
+      return;
+    }
+    this.lastNotificationTime = now;
+    
     console.log('[DecisionEngine] TRIGGERING ALARM!');
     notificationService.sendLocalNotification(
       '⚠️ CRITICAL: FALL DETECTED!',
@@ -115,3 +131,4 @@ class DecisionEngine {
 
 const decisionEngine = new DecisionEngine();
 export default decisionEngine;
+

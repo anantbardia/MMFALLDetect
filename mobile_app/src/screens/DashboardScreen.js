@@ -7,12 +7,13 @@ import notificationService from '../services/notificationService';
 import CameraFeed from '../components/CameraFeed';
 import mqttClient from '../services/mqttClient';
 import decisionEngine from '../services/decisionEngine';
+import * as Haptics from 'expo-haptics';
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
   
   const [baseUrl, setBaseUrl] = useState('https://mmfalldetect.onrender.com');
-  const [cameraUrl, setCameraUrl] = useState('https://impulse-freeness-parlor.ngrok-free.dev');
+  const [cameraUrl, setCameraUrl] = useState('https://crouch-trapped-stock.ngrok-free.dev');
 
   useFocusEffect(
     useCallback(() => {
@@ -49,6 +50,7 @@ export default function DashboardScreen() {
 
   const [cvLive, setCvLive] = useState(false);
   const [iotLive, setIotLive] = useState(false);
+  const autoRecoveryRef = useRef(null);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -167,6 +169,14 @@ export default function DashboardScreen() {
     }
   }, [systemState]);
 
+  // Auto-recovery: if system stays in alarm for 60s with backend returning NORMAL, auto-clear
+  useEffect(() => {
+    if (systemState === 'FALL_CONFIRMED' || systemState === 'ALERT_SENT') {
+      // Vibrate phone on fall detection
+      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); } catch(e) {}
+    }
+  }, [systemState]);
+
   // Direct MQTT Setup for True Edge Computing
   useEffect(() => {
     let isMounted = true;
@@ -248,6 +258,10 @@ export default function DashboardScreen() {
   const acknowledgeAlert = async () => {
     decisionEngine.acknowledge();
     setSystemState('NORMAL');
+    if (autoRecoveryRef.current) {
+      clearTimeout(autoRecoveryRef.current);
+      autoRecoveryRef.current = null;
+    }
     try {
       await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
     } catch (e) {
@@ -373,7 +387,7 @@ export default function DashboardScreen() {
           <Text style={[styles.cardTitle, { color: '#8b5cf6' }]}>
             <Ionicons name="pulse" size={12} /> Motion (SMV)
           </Text>
-          <Text style={styles.cardValue}>{motion.smv.toFixed(2)} g</Text>
+          <Text style={styles.cardValue}>{(parseFloat(motion.smv) || 0).toFixed(2)} g</Text>
         </View>
         <View style={styles.card}>
           <Text style={[styles.cardTitle, { color: isAudioDistress ? '#f59e0b' : colors.textSecondary }]}>

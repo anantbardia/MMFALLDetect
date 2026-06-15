@@ -34,7 +34,7 @@ interface DeviceInfo {
 }
 
 const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://mmfalldetect.onrender.com';
-const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'https://crouch-trapped-stock.ngrok-free.dev/video_feed';
+const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'http://localhost:8001/video_feed';
 
 export default function App() {
   const [systemState, setSystemState] = useState<SystemState>('NORMAL');
@@ -54,6 +54,8 @@ export default function App() {
   const cvTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iotTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isTestingSiren, setIsTestingSiren] = useState(false);
+  const [fallDetectedAt, setFallDetectedAt] = useState<number | null>(null);
+  const autoRecoveryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reference for stable WebSocket subscriptions without reconnection spikes
   const hasVitalsRef = useRef(hasVitals);
@@ -100,8 +102,18 @@ export default function App() {
           if (msg.system_state || msg.state) {
             const newState = msg.system_state || msg.state;
             setSystemState(prev => {
-              if (prev === 'FALL_CONFIRMED' && newState !== 'FALL_CONFIRMED') {
-                return prev; // Latch until acknowledged
+              if (prev === 'FALL_CONFIRMED' && newState === 'NORMAL') {
+                // Allow auto-recovery after 30s of backend saying NORMAL
+                if (autoRecoveryRef.current) clearTimeout(autoRecoveryRef.current);
+                autoRecoveryRef.current = setTimeout(() => {
+                  setSystemState('NORMAL');
+                  setFallDetectedAt(null);
+                }, 30000);
+                return prev; // Keep latched for now
+              }
+              if (autoRecoveryRef.current && newState !== 'NORMAL') {
+                clearTimeout(autoRecoveryRef.current);
+                autoRecoveryRef.current = null;
               }
               return newState;
             });
@@ -371,11 +383,25 @@ export default function App() {
 
   useEffect(() => {
     if (isEmergency) {
+      if (!fallDetectedAt) setFallDetectedAt(Date.now());
       startSirenSynth();
       if (audioRef.current) {
         audioRef.current.play().catch(e => console.log('Audio play blocked:', e));
       }
+      // Browser Push Notification (works even when tab is minimized)
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          new Notification('⚠️ FALL DETECTED!', {
+            body: `System state: ${systemState}. Fall score: ${(fallScore * 100).toFixed(0)}%`,
+            icon: '/logo.png',
+            requireInteraction: true,
+          });
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission();
+        }
+      }
     } else {
+      setFallDetectedAt(null);
       stopSirenSynth();
       if (audioRef.current) {
         audioRef.current.pause();
@@ -480,6 +506,7 @@ export default function App() {
                 <h2 className="text-3xl font-extrabold tracking-wider animate-pulse">⚠️ CRITICAL: FALL DETECTED!</h2>
                 <p className="text-base text-red-100 font-medium mt-1">
                   Emergency state triggered! Camera confidence: {(fallScore * 100).toFixed(0)}%. Vitals: {hasVitals ? `Heart Rate ${vitals.hr} BPM | SpO₂ ${vitals.spo2}%` : 'Wearable Standby'}.
+                  {fallDetectedAt && <span className="ml-2 font-mono text-sm">({Math.round((Date.now() - fallDetectedAt) / 1000)}s ago)</span>}
                 </p>
               </div>
             </div>
