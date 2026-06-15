@@ -230,7 +230,9 @@ export default function App() {
   useEffect(() => {
     const fetchDevices = async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/v1/devices`);
+        const res = await fetch(`${baseUrl}/api/v1/devices`, {
+          headers: { 'bypass-tunnel-reminder': 'true' }
+        });
         const data = await res.json();
         setDevices(data.devices || []);
       } catch { /* backend offline */ }
@@ -354,7 +356,10 @@ export default function App() {
     }
     setSystemState('NORMAL');
     try {
-      await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/v1/alerts/patient_01/acknowledge`, { 
+        method: 'POST',
+        headers: { 'bypass-tunnel-reminder': 'true' }
+      });
     } catch (e) {
       console.error(e);
     }

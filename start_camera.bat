@@ -44,10 +44,15 @@ echo   1. Access Vercel Dashboard at:
 echo      https://mmfall-detect.vercel.app/
 echo   2. Click the gear settings icon (top-left of camera feed)
 echo   3. Set Backend API URL to: 
-echo      https://crouch-trapped-stock.ngrok-free.dev
+echo      https://crouch-trapped-stock.loca.lt
 echo   4. Set Camera Feed URL to:
-echo      https://crouch-trapped-stock.ngrok-free.dev/video_feed
+echo      https://crouch-trapped-stock.loca.lt/video_feed
 echo ============================================
 echo.
+echo *** CRITICAL FIRST STEP ***
+echo Before starting your app, you MUST open your browser and visit:
+echo https://crouch-trapped-stock.loca.lt
+echo And click the "Continue" button to unlock the video stream!
+echo.
 
-ngrok http 8000 --domain=crouch-trapped-stock.ngrok-free.dev
+npx localtunnel --port 8000 --subdomain crouch-trapped-stock
