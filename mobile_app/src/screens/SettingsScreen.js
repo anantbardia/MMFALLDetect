@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Switch, TouchableOpacity, Share, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Switch, TouchableOpacity, Share, TextInput, ScrollView } from 'react-native';
 import { useTheme } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logoutUser, auth } from '../services/firebaseAuth';
@@ -163,7 +163,7 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
   });
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <Text style={styles.header}>Settings</Text>
 
       {/* User Information Profile */}
@@ -249,10 +249,9 @@ export default function SettingsScreen({ toggleTheme, isDarkTheme }) {
         </TouchableOpacity>
       </View>
 
-      {/* User Logout Button */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutText}>Sign Out</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
