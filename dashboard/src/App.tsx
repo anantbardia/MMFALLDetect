@@ -33,8 +33,8 @@ interface DeviceInfo {
   seconds_since_seen: number;
 }
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://crouch-trapped-stock.ngrok-free.dev';
-const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'https://crouch-trapped-stock.ngrok-free.dev/video_feed';
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://impulse-freeness-parlor.ngrok-free.dev';
+const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'https://impulse-freeness-parlor.ngrok-free.dev/video_feed';
 
 export default function App() {
   const [systemState, setSystemState] = useState<SystemState>('NORMAL');
