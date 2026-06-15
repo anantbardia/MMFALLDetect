@@ -21,8 +21,8 @@ class StateManager:
     VALID_TRANSITIONS = {
         SystemState.NORMAL: {SystemState.POSSIBLE_FALL},
         SystemState.POSSIBLE_FALL: {SystemState.NORMAL, SystemState.FALL_CONFIRMED},
-        SystemState.FALL_CONFIRMED: {SystemState.MEDICAL_ALERT, SystemState.ALERT_SENT},
-        SystemState.MEDICAL_ALERT: {SystemState.ALERT_SENT},
+        SystemState.FALL_CONFIRMED: {SystemState.MEDICAL_ALERT, SystemState.ALERT_SENT, SystemState.RECOVERY, SystemState.NORMAL},
+        SystemState.MEDICAL_ALERT: {SystemState.ALERT_SENT, SystemState.RECOVERY, SystemState.NORMAL},
         SystemState.ALERT_SENT: {SystemState.RECOVERY, SystemState.NORMAL},
         SystemState.RECOVERY: {SystemState.NORMAL},
     }

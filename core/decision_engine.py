@@ -32,6 +32,7 @@ class DecisionEngine:
         self.last_accel_spike_time = 0.0
         self.last_audio_distress_time = 0.0
         self.last_movement_time = time.time()
+        self.hardware_confirmed_fall = False
         
         # ── Context-aware visibility (spec §8) ──
         self.is_person_visible = False
@@ -107,6 +108,14 @@ class DecisionEngine:
     def compute_smv(ax: float, ay: float, az: float) -> float:
         """Signal Magnitude Vector = sqrt(ax² + ay² + az²)"""
         return math.sqrt(ax**2 + ay**2 + az**2)
+
+    def reset_history(self):
+        """Clear recent event timestamps to prevent immediate re-triggering after manual reset."""
+        self.last_cv_fall_time = 0.0
+        self.last_accel_spike_time = 0.0
+        self.last_audio_distress_time = 0.0
+        self.hardware_confirmed_fall = False
+        self.latest_fall_score = 0.0
         
     # ──────────────────────────────────────────────
     # Event Processors
@@ -142,8 +151,9 @@ class DecisionEngine:
         if smv > self.SMV_SPIKE_THRESHOLD:
             self.last_accel_spike_time = current_time
             self._log_event("MOTION_SPIKE", smv, {"smv": smv, "ax": ax, "ay": ay, "az": az})
-        elif event.get("motion") == "sudden":
+        if event.get("motion") == "sudden":
             self.last_accel_spike_time = current_time
+            self.hardware_confirmed_fall = True
         
         # Normal movement resets inactivity timer
         # > 1.2G or < 0.8G indicates movement, preventing the timer from advancing.
@@ -217,12 +227,28 @@ class DecisionEngine:
             cv_recent = (current_time - self.last_cv_fall_time) < 2.0
             accel_recent = (current_time - self.last_accel_spike_time) < 2.0
             
-            if cv_recent or accel_recent:
+            if self.hardware_confirmed_fall:
+                self.state_manager.transition_to(
+                    SystemState.FALL_CONFIRMED,
+                    "ESP32 Advanced Hardware State Machine Confirmed Fall"
+                )
+                self.hardware_confirmed_fall = False
+                current_state = SystemState.FALL_CONFIRMED
+            elif cv_recent or accel_recent:
                 self.state_manager.transition_to(
                     SystemState.POSSIBLE_FALL, 
                     f"Initial fall indicator (score={fall_score:.2f})"
                 )
                 current_state = SystemState.POSSIBLE_FALL
+                
+        # ── Hardware Override ──
+        if current_state == SystemState.POSSIBLE_FALL and getattr(self, 'hardware_confirmed_fall', False):
+            self.state_manager.transition_to(
+                SystemState.FALL_CONFIRMED,
+                "ESP32 Advanced Hardware State Machine Confirmed Fall"
+            )
+            self.hardware_confirmed_fall = False
+            current_state = SystemState.FALL_CONFIRMED
                 
         # ── Rule 2: POSSIBLE_FALL → FALL_CONFIRMED (context-aware §8) ──
         if current_state == SystemState.POSSIBLE_FALL:

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Modal, SafeAreaView } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Modal, SafeAreaView, Image } from 'react-native';
 import { useTheme } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -87,30 +86,20 @@ export default function CameraFeed({ streamUrl, title }) {
       <View style={styles.videoWrapper}>
         {streamUrl && !error ? (
           <>
-            <WebView
+            <Image
               style={styles.webview}
-              source={{ 
-                uri: streamUrl,
-                headers: { 'ngrok-skip-browser-warning': 'true' }
-              }}
-              userAgent="MMFALLDetectApp"
+              source={{ uri: streamUrl }}
+              resizeMode="contain"
               onLoadStart={() => setLoading(true)}
               onLoadEnd={() => setLoading(false)}
               onError={() => {
                 setError(true);
                 setLoading(false);
               }}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              allowsInlineMediaPlayback={true}
-              mediaPlaybackRequiresUserAction={false}
-              scrollEnabled={false}
-              bounces={false}
-              scalesPageToFit={true}
             />
             <TouchableOpacity 
               onPress={() => setIsFullScreen(true)} 
-              style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20 }}
+              style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20, zIndex: 10, elevation: 5 }}
             >
               <Ionicons name="expand" size={20} color="white" />
             </TouchableOpacity>
@@ -131,24 +120,14 @@ export default function CameraFeed({ streamUrl, title }) {
       <Modal visible={isFullScreen} animationType="fade" transparent={false}>
         <SafeAreaView style={{ flex: 1, backgroundColor: 'black' }}>
           <View style={{ flex: 1, justifyContent: 'center' }}>
-            <WebView
-              style={{ flex: 1, backgroundColor: 'black' }}
-              source={{ 
-                uri: streamUrl,
-                headers: { 'ngrok-skip-browser-warning': 'true' }
-              }}
-              userAgent="MMFALLDetectApp"
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              allowsInlineMediaPlayback={true}
-              mediaPlaybackRequiresUserAction={false}
-              scrollEnabled={false}
-              bounces={false}
-              scalesPageToFit={true}
+            <Image
+              style={{ flex: 1, width: '100%', height: '100%', backgroundColor: 'black' }}
+              source={{ uri: streamUrl }}
+              resizeMode="contain"
             />
             <TouchableOpacity 
               onPress={() => setIsFullScreen(false)} 
-              style={{ position: 'absolute', top: 20, right: 20, backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 20 }}
+              style={{ position: 'absolute', top: 40, right: 20, backgroundColor: 'rgba(255,255,255,0.3)', padding: 10, borderRadius: 30, zIndex: 999, elevation: 10 }}
             >
               <Ionicons name="close" size={28} color="white" />
             </TouchableOpacity>

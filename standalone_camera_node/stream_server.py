@@ -18,8 +18,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000")
 detector = FallDetector(
-    backend_url="http://localhost:8000",
+    backend_url=backend_url,
     patient_id="patient_01"
 )
 
@@ -83,4 +84,4 @@ def video_feed():
 
 if __name__ == "__main__":
     print("[INFO] Starting M-JPEG stream server on http://localhost:8001/video_feed")
-    uvicorn.run("stream_server:app", host="0.0.0.0", port=8001, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

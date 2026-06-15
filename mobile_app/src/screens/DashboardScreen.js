@@ -12,7 +12,7 @@ export default function DashboardScreen() {
   const { colors } = useTheme();
   
   const [baseUrl, setBaseUrl] = useState('https://mmfalldetect.onrender.com');
-  const [cameraUrl, setCameraUrl] = useState('https://spiritual-depletion-squint.ngrok-free.dev');
+  const [cameraUrl, setCameraUrl] = useState('https://impulse-freeness-parlor.ngrok-free.dev');
 
   useFocusEffect(
     useCallback(() => {
@@ -149,13 +149,21 @@ export default function DashboardScreen() {
     return () => clearInterval(interval);
   }, [baseUrl]);
 
-  // Trigger Local Notification on Fall
+  // Trigger Local Notification on Fall (Throttled to max 1 per 60 seconds)
+  const lastNotificationTime = useRef(0);
+  
   useEffect(() => {
     if (['POSSIBLE_FALL', 'FALL_CONFIRMED'].includes(systemState)) {
-      notificationService.sendLocalNotification(
-        '⚠️ FALL DETECTED!', 
-        `Critical alert: System state is currently ${systemState.replace('_', ' ')}`
-      );
+      const now = Date.now();
+      if (now - lastNotificationTime.current > 60000) {
+        lastNotificationTime.current = now;
+        notificationService.sendLocalNotification(
+          '⚠️ FALL DETECTED!', 
+          `Critical alert: System state is currently ${systemState.replace('_', ' ')}`
+        );
+      }
+    } else if (systemState === 'NORMAL') {
+      lastNotificationTime.current = 0; // Reset throttle so next fall alerts instantly
     }
   }, [systemState]);
 

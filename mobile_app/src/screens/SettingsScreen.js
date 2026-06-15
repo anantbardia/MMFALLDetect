@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Switch, TouchableOpacity, Share } from 'react-native';
+import { View, Text, StyleSheet, Switch, TouchableOpacity, Share, TextInput } from 'react-native';
 import { useTheme } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logoutUser, auth } from '../services/firebaseAuth';

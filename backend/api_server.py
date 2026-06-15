@@ -178,6 +178,7 @@ async def acknowledge_alert(patient_id: str):
     """Reset system state through RECOVERY → NORMAL (spec §11)."""
     engine = get_engine(patient_id)
     engine.state_manager.reset_to_normal("Manually acknowledged via Dashboard")
+    engine.reset_history()  # Wipe short-term AI memory to prevent immediate re-trigger
     new_state = engine.state_manager.get_current_state()
     await broadcast_event(patient_id, {"type": "system_state", "system_state": new_state})
     return {"status": "reset", "state": new_state}

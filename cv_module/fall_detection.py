@@ -65,6 +65,11 @@ class FallDetector:
         self.fall_confirmed_latch = False
         self.fall_latch_time = 0
         
+        # ── Smoothing Filters ──
+        self.smoothed_torso_angle = None
+        self.smoothed_knee_angle = None
+        self.ALPHA = 0.2  # Smoothing factor (lower = smoother but slower to react)
+        
     def calculate_bbox_ratio(self, landmarks, image_width, image_height):
         """Calculate height-to-width ratio of the body bounding box.
         > 1.0 = standing (taller than wide)
@@ -130,15 +135,30 @@ class FallDetector:
         return avg_movement < self.INACTIVITY_THRESHOLD
 
     def get_line_angle(self, p1_x, p1_y, p2_x, p2_y):
-        """Calculate angle of a line relative to the X-axis.
-        90 degrees = Perfectly Vertical.
-        0 degrees = Perfectly Horizontal.
-        """
+        """Calculate angle of a line relative to the X-axis in 2D."""
         dx = abs(p1_x - p2_x)
         dy = abs(p1_y - p2_y)
         if dx == 0:
             return 90.0
         return math.degrees(math.atan2(dy, dx))
+
+    def get_3d_angle(self, p1, p2, p3):
+        """Calculate the 3D angle between three points (p1-p2-p3)."""
+        # p2 is the vertex (e.g., knee)
+        ba = [p1.x - p2.x, p1.y - p2.y, p1.z - p2.z]
+        bc = [p3.x - p2.x, p3.y - p2.y, p3.z - p2.z]
+        
+        dot_product = sum(a * b for a, b in zip(ba, bc))
+        mag_ba = math.sqrt(sum(a**2 for a in ba))
+        mag_bc = math.sqrt(sum(b**2 for b in bc))
+        
+        if mag_ba * mag_bc == 0:
+            return 180.0
+            
+        cos_angle = dot_product / (mag_ba * mag_bc)
+        cos_angle = max(-1.0, min(1.0, cos_angle)) # Handle precision errors
+        
+        return math.degrees(math.acos(cos_angle))
 
     def analyze_posture(self, landmarks, image_width, image_height, current_velocity):
         """Analyze posture using deterministic geometric state machine and velocity."""
@@ -154,16 +174,55 @@ class FallDetector:
             hip_x = (lm[mp_pose.LEFT_HIP.value].x + lm[mp_pose.RIGHT_HIP.value].x) / 2
             hip_y = (lm[mp_pose.LEFT_HIP.value].y + lm[mp_pose.RIGHT_HIP.value].y) / 2
             
-            ankle_x = (lm[mp_pose.LEFT_ANKLE.value].x + lm[mp_pose.RIGHT_ANKLE.value].x) / 2
-            ankle_y = (lm[mp_pose.LEFT_ANKLE.value].y + lm[mp_pose.RIGHT_ANKLE.value].y) / 2
-            
             # Calculate Angles
             torso_angle = self.get_line_angle(shoulder_x, shoulder_y, hip_x, hip_y)
-            leg_angle = self.get_line_angle(hip_x, hip_y, ankle_x, ankle_y)
             
-            # Check for recent high downward velocity
+            # --- OVERHAUL 2.0: Femur-Height & Face-Proximity Gates ---
+            left_hip, left_knee, left_ankle = lm[mp_pose.LEFT_HIP.value], lm[mp_pose.LEFT_KNEE.value], lm[mp_pose.LEFT_ANKLE.value]
+            right_hip, right_knee, right_ankle = lm[mp_pose.RIGHT_HIP.value], lm[mp_pose.RIGHT_KNEE.value], lm[mp_pose.RIGHT_ANKLE.value]
+            
+            torso_height = max(abs(hip_y - shoulder_y), 0.001)
+            
+            # 1. Sitting Math: When sitting, the femur (hip to knee) becomes horizontal (2D vertical height shrinks to near 0)
+            avg_knee_y = (left_knee.y + right_knee.y) / 2.0
+            femur_height = abs(avg_knee_y - hip_y)
+            femur_torso_ratio = femur_height / torso_height
+            
+            # 2. Close-up Math: If the face takes up > 15% of the screen width, it's a camera-in-face false positive.
+            face_width = abs(lm[mp_pose.LEFT_EAR.value].x - lm[mp_pose.RIGHT_EAR.value].x)
+            is_close_up = face_width > 0.15
+            
+            # ── 1. Temporal Smoothing (EMA) ──
+            if not hasattr(self, 'smoothed_femur_ratio') or self.smoothed_torso_angle is None:
+                self.smoothed_torso_angle = torso_angle
+                self.smoothed_femur_ratio = femur_torso_ratio
+            else:
+                self.smoothed_torso_angle = (self.ALPHA * torso_angle) + ((1 - self.ALPHA) * self.smoothed_torso_angle)
+                self.smoothed_femur_ratio = (self.ALPHA * femur_torso_ratio) + ((1 - self.ALPHA) * self.smoothed_femur_ratio)
+            
+            # ── 2. Strict Occlusion & Visibility Gates ──
+            # MediaPipe guesses off-screen landmarks, so we must check if they are actually off-screen (y > 1.0 or y < 0.0)
+            legs_off_screen = (avg_knee_y > 0.95) or (left_ankle.y > 0.95 and right_ankle.y > 0.95)
+            
+            # ── 3. Multi-Factor Fall Proximity & Normalization ──
+            head_y = lm[mp_pose.NOSE.value].y
+            avg_ankle_y = (left_ankle.y + right_ankle.y) / 2.0
+            head_ankle_dist = abs(head_y - avg_ankle_y)
+            
+            # Bounding box height
+            bbox_min_y = min(node.y for node in lm)
+            bbox_max_y = max(node.y for node in lm)
+            bbox_height = max(bbox_max_y - bbox_min_y, 0.001)
+            
+            # Normalized velocity (raw velocity divided by body height)
             max_recent_vel = max(list(self.velocity_history) + [0])
-            has_rapid_drop = max_recent_vel > self.VELOCITY_THRESHOLD
+            normalized_vel = max_recent_vel / bbox_height
+            
+            # Strict flat check: Head must be near ankles relative to total bounding box
+            is_physically_flat = (head_ankle_dist / bbox_height) < 0.5
+            
+            # Fall triggers (falling 10% of own body height in a single frame = ~30 FPS rapid drop)
+            has_rapid_drop = normalized_vel > 0.10
             
             is_fall = False
             confidence = 0.0
@@ -176,23 +235,30 @@ class FallDetector:
                 self.fall_confirmed_latch = False
             
             # State Machine Logic
-            if torso_angle > 55.0:
+            if self.smoothed_torso_angle > 50.0:
                 # Torso is generally upright
-                if leg_angle > 45.0:
+                if is_close_up or legs_off_screen:
                     self.current_posture_state = "STANDING"
-                else:
+                elif self.smoothed_femur_ratio < 0.65:
+                    # Femur vertical height is small relative to torso -> SITTING
                     self.current_posture_state = "SITTING"
-            elif torso_angle <= 55.0:
-                # Torso is horizontal or significantly bent
-                if has_rapid_drop:
-                    # Rapid drop followed by horizontal torso -> FALL!
+                else:
+                    # Femur vertical height is long -> STANDING
+                    self.current_posture_state = "STANDING"
+            else:
+                # Torso is horizontal (angle < 50)
+                if is_close_up:
+                    # STRICT GATE: Face is huge on camera. This is a person holding the camera or right in front of it.
+                    self.current_posture_state = "STANDING"
+                elif has_rapid_drop and is_physically_flat:
+                    # Rapid normalized drop AND head is close to the floor -> TRUE FALL!
                     self.current_posture_state = "FALL DETECTED"
                     self.fall_confirmed_latch = True
                     self.fall_latch_time = current_time
                     is_fall = True
-                    confidence = 0.95
+                    confidence = 0.98
                 else:
-                    # Slow transition to horizontal -> SLEEPING / RESTING
+                    # Slow transition OR lying on a high bed -> RESTING
                     self.current_posture_state = "SLEEPING"
             
             if is_fall:
@@ -241,6 +307,9 @@ class FallDetector:
             # Calculate velocity BEFORE analyzing posture
             head_y = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.NOSE.value].y
             current_vel = self.compute_vertical_velocity(head_y, time.time())
+            
+            # Track overall body movement for inactivity detection
+            self.compute_landmark_movement(results.pose_landmarks)
             
             is_fallen, confidence = self.analyze_posture(
                 results.pose_landmarks, image_width, image_height, current_vel

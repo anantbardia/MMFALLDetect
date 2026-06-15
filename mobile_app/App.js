@@ -57,6 +57,8 @@ export default function App() {
     };
   }, []);
 
+
+
   const toggleTheme = async () => {
     const newTheme = !isDarkTheme;
     setIsDarkTheme(newTheme);

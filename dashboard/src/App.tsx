@@ -33,8 +33,8 @@ interface DeviceInfo {
   seconds_since_seen: number;
 }
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'http://localhost:8001/video_feed';
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://crouch-trapped-stock.ngrok-free.dev';
+const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'https://crouch-trapped-stock.ngrok-free.dev/video_feed';
 
 export default function App() {
   const [systemState, setSystemState] = useState<SystemState>('NORMAL');
@@ -147,8 +147,8 @@ export default function App() {
               const az = msg.motion.az;
               const smv = msg.motion.smv ?? Math.sqrt(ax * ax + ay * ay + az * az);
 
-              // Trigger beep warning on sudden fluctuations
-              if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
+              // Trigger beep warning on sudden fluctuations (Throttled to once per 60 seconds)
+              if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 60000) {
                 lastBeepTimeRef.current = Date.now();
                 playBeepSynth();
                 if (beepAudioRef.current) {
@@ -194,8 +194,8 @@ export default function App() {
               const az = d.az ?? 0;
               const smv = msg.smv ?? Math.sqrt(ax * ax + ay * ay + az * az);
 
-              // Trigger beep warning on sudden fluctuations
-              if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 1500) {
+              // Trigger beep warning on sudden fluctuations (Throttled to once per 60 seconds)
+              if ((smv > 2.2 || smv < 0.4) && Date.now() - lastBeepTimeRef.current > 60000) {
                 lastBeepTimeRef.current = Date.now();
                 playBeepSynth();
                 if (beepAudioRef.current) {

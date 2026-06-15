@@ -49,7 +49,7 @@ const char* PATIENT_ID    = "patient_01";
 #define BUFFER_LEN 64
 
 // ─── Thresholds ─────────────────────────────────
-#define SMV_SPIKE_THRESHOLD  2.5
+#define SMV_SPIKE_THRESHOLD  2.5  // Lowered from 3.2 to catch softer falls onto carpets/sofas
 #define MIC_NOISE_THRESHOLD  10000
 #define MIC_SAMPLE_DURATION  2000
 #define SLEEP_TIMEOUT_MS     60000
@@ -68,6 +68,9 @@ MAX30105 particleSensor;
 float ax, ay, az;
 float gx, gy, gz;
 float smv;
+float pre_fall_ax = 0.0;
+float pre_fall_ay = 0.0;
+float pre_fall_az = 1.0;
 int heartRate = 75;
 int spo2 = 98;
 int batteryLevel = 100;
@@ -75,6 +78,7 @@ int batteryLevel = 100;
 unsigned long lastMotionSend = 0;
 unsigned long lastVitalsSend = 0;
 unsigned long lastMovementTime = 0;
+unsigned long lastFreeFallTime = 0;
 bool motionSpikeActive = false;
 
 // Sensor States
@@ -285,10 +289,68 @@ void readBattery() {
     batteryLevel = 100;
 }
 
+// ─── Fall Verification (Inactivity Check) ───────
+bool verifyFall() {
+    Serial.println("[IMU] Impact detected! Verifying post-fall inactivity for 2 seconds...");
+    unsigned long startVerify = millis();
+    float max_smv = 0.0;
+    float min_smv = 10.0;
+    int samples = 0;
+    
+    // Wait for 500ms to let the bouncing/impact settle
+    delay(500);
+    
+    // Sample high-frequency variance for the next 1500ms
+    startVerify = millis();
+    while (millis() - startVerify < 1500) {
+        readIMU();
+        if (smv > max_smv) max_smv = smv;
+        if (smv < min_smv) min_smv = smv;
+        samples++;
+        delay(20);
+    }
+    
+    float variance = max_smv - min_smv;
+    Serial.printf("[IMU] Verification complete. Samples: %d, Variance: %.3fg\n", samples, variance);
+    
+    // If the variance is extremely low (e.g., < 0.20g difference), the person is motionless.
+    // If it's high, they are moving/recovering/vibrating, so it was a desk slam or false alarm.
+    if (variance < 0.20) {
+        Serial.println("[IMU] POST-FALL INACTIVITY CONFIRMED. Checking 3D Spatial Tilt...");
+        
+        // Get the final stable gravity vector (post-fall)
+        float post_fall_ax = ax;
+        float post_fall_ay = ay;
+        float post_fall_az = az;
+        
+        // Calculate 3D Dot Product between the pre-fall and post-fall vectors
+        float dot_product = (pre_fall_ax * post_fall_ax) + (pre_fall_ay * post_fall_ay) + (pre_fall_az * post_fall_az);
+        float pre_mag = sqrt(pre_fall_ax*pre_fall_ax + pre_fall_ay*pre_fall_ay + pre_fall_az*pre_fall_az);
+        float post_mag = sqrt(post_fall_ax*post_fall_ax + post_fall_ay*post_fall_ay + post_fall_az*post_fall_az);
+        
+        // Normalize dot product to get cos(theta)
+        float cos_theta = dot_product / (pre_mag * post_mag);
+                                         
+        // cos(60 degrees) = 0.500. If cos_theta > 0.500, the angle change is LESS than 60 degrees.
+        // A true fall shifts the wrist by roughly 90 degrees (cos_theta ~ 0).
+        // Desk slamming doesn't change orientation.
+        if (cos_theta > 0.500) {
+            Serial.println("[IMU] Wrist Tilt < 60 degrees. Orientation unchanged. FALSE ALARM (Desk slam) canceled.");
+            return false;
+        } else {
+            Serial.println("[IMU] Wrist Tilt > 60 degrees. Posture changed entirely. TRUE FALL CONFIRMED!");
+            return true;
+        }
+    } else {
+        Serial.println("[IMU] Movement/Vibration detected after impact. FALSE ALARM canceled.");
+        return false;
+    }
+}
+
 // ─── Publish Motion Data ────────────────────────
-void publishMotion() {
+void publishMotion(bool isConfirmedFall = false) {
     char motionType[16] = "normal";
-    if (smv > SMV_SPIKE_THRESHOLD) {
+    if (isConfirmedFall) {
         strcpy(motionType, "sudden");
     }
     float gyroMag = sqrt(gx*gx + gy*gy + gz*gz);
@@ -307,7 +369,13 @@ void publishMotion() {
 void publishVitals() {
     if (max_ok) {
         long irValue = particleSensor.getIR();
-        if (irValue > 10000) {
+        long redValue = particleSensor.getRed();
+        
+        // Human skin/blood heavily absorbs Red light but reflects IR light.
+        // Inanimate objects (walls, pillows) reflect both equally.
+        // We ensure IR is high (physical contact) AND there is a significant difference
+        // between IR and Red reflection to confirm it is actually human skin.
+        if (irValue > 50000 && (irValue - redValue) > 10000) {
             heartRate = 72 + (millis() % 10);
             spo2 = 97 + (millis() % 3);
         } else {
@@ -350,28 +418,52 @@ void loop() {
     unsigned long now = millis();
     readIMU();
     
+    // Maintain a continuous Low-Pass Filter of the gravity vector to know the user's standing/sitting posture
+    if (smv > 0.8 && smv < 1.2 && !motionSpikeActive) {
+        pre_fall_ax = (pre_fall_ax * 0.95) + (ax * 0.05);
+        pre_fall_ay = (pre_fall_ay * 0.95) + (ay * 0.05);
+        pre_fall_az = (pre_fall_az * 0.95) + (az * 0.05);
+    }
+    
+    if (smv < 0.7) lastFreeFallTime = now;
     if (smv > 1.2) lastMovementTime = now;
     
     // ── Send motion data at regular intervals ──
     if (now - lastMotionSend >= MOTION_INTERVAL_MS) {
-        publishMotion();
+        if (!motionSpikeActive) publishMotion(false);
         lastMotionSend = now;
         
-        // ── Motion spike → activate microphone ──
+        // ── Impact Spike Detected → Verify Fall ──
         if (smv > SMV_SPIKE_THRESHOLD && !motionSpikeActive) {
             motionSpikeActive = true;
-            Serial.println("[ALERT] Motion spike detected!");
             
-            if (!isConnectedToCloud) {
-                // If BOTH brokers are offline, trigger GSM!
-                triggerGSMFallback();
+            // Filter out table slams: A true fall has a period of free-fall (smv < 0.7) before the impact.
+            // A fall from standing height takes ~400-600ms. 
+            // If we haven't seen a free-fall in the last 800ms, it is physically impossible to be a fall.
+            if (now - lastFreeFallTime > 800) {
+                Serial.println("[IMU] Impact without preceding free-fall! Likely a desk slam. Ignored.");
+                motionSpikeActive = false;
             } else {
-                Serial.println("Activating microphone...");
-                bool distress = detectVoiceActivity();
-                publishAudio(distress);
+                Serial.println("[ALERT] Impact spike detected! Verifying...");
                 
-                if (distress) Serial.println("[ALERT] Distress sound detected!");
+                if (verifyFall()) {
+                // TRUE FALL CONFIRMED!
+                publishMotion(true); // Send "sudden" motion type to cloud
+                
+                if (!isConnectedToCloud) {
+                    triggerGSMFallback();
+                } else {
+                    Serial.println("Activating microphone for distress audio...");
+                    bool distress = detectVoiceActivity();
+                    publishAudio(distress);
+                    
+                    if (distress) Serial.println("[ALERT] Distress sound detected!");
+                }
+            } else {
+                // False alarm, ignore it
+                publishMotion(false);
             }
+            
             motionSpikeActive = false;
         }
     }

@@ -1,304 +1,261 @@
 """
-Computer Vision Fall Detection Module (spec §5).
+Computer Vision Fall Detection Module (Hybrid Architecture).
 
 Pipeline:
-  Camera Frame → Person Detection → Pose Estimation → 
-  Body Orientation Analysis → Fall Detection → Generate Event
-
-Detection methods:
-  1. Bounding box aspect ratio (height/width < 1.0 → lying down)
-  2. Vertical velocity tracking (rapid downward head movement)
-  3. Inactivity detection (person motionless after falling)
-  4. Dynamic confidence scoring from multiple signals
+  Camera Frame -> Blur Check -> MediaPipe Geometry Gatekeeper -> 
+  (If Horizontal) -> Moondream VLM Confirmation -> Event Generation
 """
 
 import cv2
-import mediapipe as mp
-import numpy as np
 import time
-import math
 import requests
-import json
+import base64
+import threading
 from collections import deque
-import tensorflow as tf
-import pickle
-import os
+import mediapipe as mp
 
 class FallDetector:
     def __init__(self, backend_url="http://localhost:8000", patient_id="patient_01"):
-        # ── MediaPipe Setup ──
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            min_detection_confidence=0.3,
-            min_tracking_confidence=0.3,
-            model_complexity=0,
-        )
-        self.mp_drawing = mp.solutions.drawing_utils
-        
-        # ── Network ──
         self.backend_url = backend_url
         self.patient_id = patient_id
         
         # ── State tracking ──
         self.is_fallen = False
-        self.fall_start_time = 0
         self.last_event_time = 0
-        self.frames_since_fall = 0
-        self.inference_counter = 0
-        self.last_prediction = (False, 0.0)
+        self.current_posture_state = "INITIALIZING..."
+        self.confidence = 0.0
         
-        # ── Velocity tracking (spec §5: rapid downward movement) ──
-        self.prev_head_y = None
-        self.prev_frame_time = time.time()
-        self.velocity_history = deque(maxlen=10)  # recent vertical velocities
-        self.VELOCITY_THRESHOLD = 0.8  # normalized pixels/second for fall detection
+        # ── Advanced Temporal Voting (for VLM) ──
+        self.prediction_history = deque(maxlen=3)
         
-        # ── Inactivity tracking (spec §5: person motionless after fall) ──
-        self.prev_landmarks = None
-        self.landmark_movement_history = deque(maxlen=30)  # track movement per frame
-        self.INACTIVITY_THRESHOLD = 0.005  # average landmark displacement
-        self.INACTIVITY_FRAMES = 20  # frames with minimal movement
+        # ── MediaPipe Gatekeeper Setup ──
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import vision
         
-        # ── Custom ML Model (DISABLED in favor of Geometric Logic) ──
-        self.ml_active = False
-        self.current_posture_state = "UNKNOWN"
-        self.fall_confirmed_latch = False
-        self.fall_latch_time = 0
-        
-    def calculate_bbox_ratio(self, landmarks, image_width, image_height):
-        """Calculate height-to-width ratio of the body bounding box.
-        > 1.0 = standing (taller than wide)
-        < 1.0 = lying down (wider than tall)
-        """
-        x_coords = [lm.x for lm in landmarks.landmark]
-        y_coords = [lm.y for lm in landmarks.landmark]
-        
-        width = (max(x_coords) - min(x_coords)) * image_width
-        height = (max(y_coords) - min(y_coords)) * image_height
-        
-        if width == 0:
-            width = 0.001
-        
-        return height / width
-
-    def compute_vertical_velocity(self, head_y: float, current_time: float) -> float:
-        """Track vertical velocity of the head (spec §5: rapid downward movement)."""
-        if self.prev_head_y is None:
-            self.prev_head_y = head_y
-            self.prev_frame_time = current_time
-            return 0.0
-            
-        dt = current_time - self.prev_frame_time
-        if dt <= 0:
-            return 0.0
-            
-        # Positive velocity = downward movement (Y increases downward in image coords)
-        velocity = (head_y - self.prev_head_y) / dt
-        
-        self.prev_head_y = head_y
-        self.prev_frame_time = current_time
-        self.velocity_history.append(velocity)
-        
-        return velocity
-    
-    def compute_landmark_movement(self, landmarks) -> float:
-        """Compute average displacement of all landmarks between frames.
-        Used for inactivity detection (spec §5: person motionless after fall).
-        """
-        current_pts = [(lm.x, lm.y) for lm in landmarks.landmark]
-        
-        if self.prev_landmarks is None:
-            self.prev_landmarks = current_pts
-            return 1.0  # assume movement on first frame
-            
-        total_disp = 0.0
-        for (cx, cy), (px, py) in zip(current_pts, self.prev_landmarks):
-            total_disp += math.sqrt((cx - px)**2 + (cy - py)**2)
-        
-        avg_disp = total_disp / len(current_pts)
-        self.prev_landmarks = current_pts
-        self.landmark_movement_history.append(avg_disp)
-        
-        return avg_disp
-    
-    def is_person_inactive(self) -> bool:
-        """Check if person has been motionless for N frames."""
-        if len(self.landmark_movement_history) < self.INACTIVITY_FRAMES:
-            return False
-        recent = list(self.landmark_movement_history)[-self.INACTIVITY_FRAMES:]
-        avg_movement = sum(recent) / len(recent)
-        return avg_movement < self.INACTIVITY_THRESHOLD
-
-    def get_line_angle(self, p1_x, p1_y, p2_x, p2_y):
-        """Calculate angle of a line relative to the X-axis.
-        90 degrees = Perfectly Vertical.
-        0 degrees = Perfectly Horizontal.
-        """
-        dx = abs(p1_x - p2_x)
-        dy = abs(p1_y - p2_y)
-        if dx == 0:
-            return 90.0
-        return math.degrees(math.atan2(dy, dx))
-
-    def analyze_posture(self, landmarks, image_width, image_height, current_velocity):
-        """Analyze posture using deterministic geometric state machine and velocity."""
         try:
-            current_time = time.time()
-            lm = landmarks.landmark
-            mp_pose = self.mp_pose.PoseLandmark
-            
-            # Extract Midpoints
-            shoulder_x = (lm[mp_pose.LEFT_SHOULDER.value].x + lm[mp_pose.RIGHT_SHOULDER.value].x) / 2
-            shoulder_y = (lm[mp_pose.LEFT_SHOULDER.value].y + lm[mp_pose.RIGHT_SHOULDER.value].y) / 2
-            
-            hip_x = (lm[mp_pose.LEFT_HIP.value].x + lm[mp_pose.RIGHT_HIP.value].x) / 2
-            hip_y = (lm[mp_pose.LEFT_HIP.value].y + lm[mp_pose.RIGHT_HIP.value].y) / 2
-            
-            ankle_x = (lm[mp_pose.LEFT_ANKLE.value].x + lm[mp_pose.RIGHT_ANKLE.value].x) / 2
-            ankle_y = (lm[mp_pose.LEFT_ANKLE.value].y + lm[mp_pose.RIGHT_ANKLE.value].y) / 2
-            
-            # Calculate Angles
-            torso_angle = self.get_line_angle(shoulder_x, shoulder_y, hip_x, hip_y)
-            leg_angle = self.get_line_angle(hip_x, hip_y, ankle_x, ankle_y)
-            
-            # Check for recent high downward velocity
-            max_recent_vel = max(list(self.velocity_history) + [0])
-            has_rapid_drop = max_recent_vel > self.VELOCITY_THRESHOLD
-            
-            is_fall = False
-            confidence = 0.0
-            
-            # Maintain fall latch for a few seconds to avoid flickering
-            if self.fall_confirmed_latch and (current_time - self.fall_latch_time < 5.0):
-                self.current_posture_state = "FALL DETECTED"
-                return True, 0.99
-            elif self.fall_confirmed_latch:
-                self.fall_confirmed_latch = False
-            
-            # State Machine Logic
-            if torso_angle > 55.0:
-                # Torso is generally upright
-                if leg_angle > 45.0:
-                    self.current_posture_state = "STANDING"
-                else:
-                    self.current_posture_state = "SITTING"
-            elif torso_angle <= 55.0:
-                # Torso is horizontal or significantly bent
-                if has_rapid_drop:
-                    # Rapid drop followed by horizontal torso -> FALL!
-                    self.current_posture_state = "FALL DETECTED"
-                    self.fall_confirmed_latch = True
-                    self.fall_latch_time = current_time
-                    is_fall = True
-                    confidence = 0.95
-                else:
-                    # Slow transition to horizontal -> SLEEPING / RESTING
-                    self.current_posture_state = "SLEEPING"
-            
-            if is_fall:
-                if not self.is_fallen:
-                    self.fall_start_time = current_time
-                self.frames_since_fall += 1
-            else:
-                self.frames_since_fall = 0
-                
-            return is_fall, confidence
-                
+            base_options = python.BaseOptions(model_asset_path='pose_landmarker_lite.task')
+            options = vision.PoseLandmarkerOptions(
+                base_options=base_options,
+                output_segmentation_masks=False,
+                min_pose_detection_confidence=0.3,
+                min_pose_presence_confidence=0.3,
+                min_tracking_confidence=0.3)
+            self.detector = vision.PoseLandmarker.create_from_options(options)
         except Exception as e:
-            print(f"[CV] Posture analysis error: {e}")
-            self.current_posture_state = "ERROR"
-            return False, 0.0
+            print(f"Error loading MediaPipe model: {e}")
+            self.detector = None
+            
+        self.LEFT_EAR = 7
+        self.RIGHT_EAR = 8
+        
+        # ── Ollama VLM Setup ──
+        self.latest_frame_for_vlm = None
+        self.vlm_state = "AWAITING VLM..."
+        self.ollama_url = "http://localhost:11434/api/generate"
+        
+        # Start background polling thread for VLM
+        self.running = True
+        self.inference_thread = threading.Thread(target=self._ollama_inference_loop, daemon=True)
+        self.inference_thread.start()
+        
+    def _ollama_inference_loop(self):
+        """Background thread that ONLY runs when MediaPipe detects a horizontal body."""
+        while self.running:
+            if self.latest_frame_for_vlm is None:
+                time.sleep(0.1)
+                continue
+                
+            try:
+                # 1. Grab the latest frame sent by the gatekeeper
+                small_frame = cv2.resize(self.latest_frame_for_vlm, (400, 300))
+                
+                # 2. Encode to JPEG base64 (STRICTLY IN RAM - NO DISK SAVING)
+                _, buffer = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                b64_image = base64.b64encode(buffer).decode('utf-8')
+                
+                del small_frame
+                del buffer
+                # 3. Object-Based Prompt
+                # Small AI models struggle with abstract actions like "falling" vs "sleeping".
+                # But they are EXCELLENT at identifying physical objects (floor vs bed).
+                prompt = "The person is lying down. Look at what is underneath them. Are they lying on the FLOOR, or are they lying on a BED or SOFA? Answer with exactly one word: FLOOR or FURNITURE."
+                
+                payload = {
+                    "model": "llama3.2-vision",
+                    "prompt": prompt,
+                    "images": [b64_image],
+                    "stream": False
+                }
+                
+                response = requests.post(self.ollama_url, json=payload, timeout=10.0)
+                if response.status_code == 200:
+                    raw_json = response.json()
+                    result_text = raw_json.get("response", "").strip().upper()
+                    
+                    if "NOT" in result_text:
+                        result_text = result_text.replace("NOT FLOOR", "FURNITURE")
+                        result_text = result_text.replace("NOT FURNITURE", "FLOOR")
+                        
+                    raw_prediction = "VLM: UNKNOWN"
+                    if "FLOOR" in result_text or "GROUND" in result_text or "CARPET" in result_text:
+                        raw_prediction = "FALL DETECTED"
+                    elif "FURNITURE" in result_text or "BED" in result_text or "SOFA" in result_text or "CHAIR" in result_text:
+                        raw_prediction = "SLEEPING"
+                        
+                    # ── Temporal Smoothing (Voting System) ──
+                    self.prediction_history.append(raw_prediction)
+                    fall_votes = sum(1 for p in self.prediction_history if p == "FALL DETECTED")
+                    
+                    if fall_votes >= 2:
+                        self.vlm_state = "FALL DETECTED"
+                        self.confidence = 0.98
+                    else:
+                        self.vlm_state = raw_prediction
+                        
+                else:
+                    self.vlm_state = "OLLAMA ERROR"
+                    time.sleep(2.0)
+                    
+            except requests.exceptions.ConnectionError:
+                self.vlm_state = "OLLAMA OFFLINE"
+                time.sleep(2.0)
+            except Exception as e:
+                print(f"[Ollama Thread Error] {e}")
+                time.sleep(1.0)
 
     def process_frame(self, frame):
-        """Process a single frame through the full CV pipeline."""
+        """Main CV loop. Uses Geometry to gatekeep the VLM."""
         previous_is_fallen = self.is_fallen
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        image.flags.writeable = False
+        output_image = frame.copy()
         
-        results = self.pose.process(image)
+        # 1. ── Blur Detection Gate ──
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        blur_score = cv2.Laplacian(gray, cv2.CV_64F).var()
         
-        image.flags.writeable = True
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        if blur_score < 30.0:
+            self.current_posture_state = "MOTION BLUR (CAMERA MOVING)"
+            self.is_fallen = False
+            self.latest_frame_for_vlm = None
+            self._finalize_frame(output_image, previous_is_fallen)
+            return output_image
+            
+        # 2. ── MediaPipe Geometry Gatekeeper ──
+        if not self.detector:
+            self.current_posture_state = "MEDIAPIPE MODEL MISSING"
+            self._finalize_frame(output_image, previous_is_fallen)
+            return output_image
+            
+        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
+        detection_result = self.detector.detect(mp_image)
         
-        image_height, image_width, _ = image.shape
+        if not detection_result.pose_landmarks:
+            self.current_posture_state = "NO PERSON DETECTED"
+            self.is_fallen = False
+            self.latest_frame_for_vlm = None
+            self.prediction_history.clear()
+            self._finalize_frame(output_image, previous_is_fallen)
+            return output_image
+            
+        # We have a person! Extract 2D geometry
+        landmarks = detection_result.pose_landmarks[0]
+        
+        # Draw skeleton
+        image_height, image_width, _ = output_image.shape
+        for pt in landmarks:
+            x = int(pt.x * image_width)
+            y = int(pt.y * image_height)
+            cv2.circle(output_image, (x, y), 4, (245, 117, 66), -1)
+            
+        # Calculate bounding box
+        x_coords = [lm.x for lm in landmarks]
+        y_coords = [lm.y for lm in landmarks]
+        
+        bbox_width = max((max(x_coords) - min(x_coords)), 0.001)
+        bbox_height = max((max(y_coords) - min(y_coords)), 0.001)
+        
+        # Calculate face width relative to screen
+        face_width = abs(landmarks[self.LEFT_EAR].x - landmarks[self.RIGHT_EAR].x)
+        
+        # Check which body parts are visible
+        # MediaPipe uses visibility scores. If hips/knees are not visible, we only see the upper body.
+        # Since we use a simple list of landmarks without visibility in the old loop, we can just check 
+        # if the Y coordinates of the bottom of the bounding box are close to the top of the bounding box.
+        
+        # ── IRONCLAD GEOMETRIC RULES ──
+        if face_width > 0.25:
+            # Rule 1: The face takes up >25% of the screen width. 
+            # This is someone looking right into the camera. It is physically impossible to be a fall.
+            self.current_posture_state = "STANDING (CLOSE-UP)"
+            self.is_fallen = False
+            self.latest_frame_for_vlm = None
+            self.prediction_history.clear()
+            
+        elif bbox_height > bbox_width:
+            # Rule 2: The bounding box is taller than it is wide. 
+            # The person is absolutely upright (standing or sitting).
+            self.current_posture_state = "UPRIGHT (STANDING/SITTING)"
+            self.is_fallen = False
+            self.latest_frame_for_vlm = None
+            self.prediction_history.clear()
+            
+        else:
+            # Rule 3: The bounding box is wider than it is tall.
+            # This could mean they are lying down horizontally.
+            
+            # ── FLOOR GATE ──
+            # Look at the absolute lowest point of their body (max_y). 
+            # If they are floating in the top 60% of the screen, they are elevated on a bed/sofa.
+            # The floor is at the bottom of the screen (Y closer to 1.0).
+            max_y = max(y_coords)
+            
+            if max_y < 0.60:
+                self.current_posture_state = "ELEVATED (SLEEPING/RESTING)"
+                self.is_fallen = False
+                self.latest_frame_for_vlm = None
+                self.prediction_history.clear()
+            else:
+                # They are horizontal AND low to the ground.
+                # Now we ask Moondream: Is this a mattress on the floor, or the actual floor?
+                self.current_posture_state = f"ANALYZING... -> {self.vlm_state}"
+                self.latest_frame_for_vlm = frame.copy()
+                
+                if self.vlm_state == "FALL DETECTED":
+                    self.is_fallen = True
+                else:
+                    self.is_fallen = False
+                
+        self._finalize_frame(output_image, previous_is_fallen)
+        return output_image
+        
+    def _finalize_frame(self, output_image, previous_is_fallen):
+        # Send event
         event_payload = {
-            "person_visible": False,
-            "fall_predicted": False,
-            "confidence": 0.0,
+            "person_visible": "NO PERSON" not in self.current_posture_state and "BLUR" not in self.current_posture_state,
+            "fall_predicted": self.is_fallen,
+            "confidence": self.confidence if self.is_fallen else 0.0,
             "timestamp": time.time(),
         }
-
-        if results.pose_landmarks:
-            event_payload["person_visible"] = True
-            
-            # Draw skeleton
-            self.mp_drawing.draw_landmarks(
-                image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
-                self.mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2),
-                self.mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2),
-            )
-            
-            # Calculate velocity BEFORE analyzing posture
-            head_y = results.pose_landmarks.landmark[self.mp_pose.PoseLandmark.NOSE.value].y
-            current_vel = self.compute_vertical_velocity(head_y, time.time())
-            
-            is_fallen, confidence = self.analyze_posture(
-                results.pose_landmarks, image_width, image_height, current_vel
-            )
-            
-            if is_fallen:
-                event_payload["fall_predicted"] = True
-                event_payload["confidence"] = confidence
-                self.is_fallen = True
-                
-                # Red overlay
-                color = (0, 0, 255)
-                label = f"FALL DETECTED (conf={confidence:.0%})"
-                cv2.putText(image, label, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2, cv2.LINE_AA)
-                
-                # Inactivity timer
-                if self.is_person_inactive():
-                    elapsed = time.time() - self.fall_start_time
-                    cv2.putText(image, f"MOTIONLESS: {elapsed:.0f}s", (30, 90), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 100, 255), 2, cv2.LINE_AA)
-            else:
-                self.is_fallen = False
-                
-                # Dynamic Color based on state
-                state_color = (0, 255, 0)
-                if self.current_posture_state == "SITTING":
-                    state_color = (255, 200, 0) # Cyan/Blueish for Sitting
-                elif self.current_posture_state == "SLEEPING":
-                    state_color = (255, 100, 200) # Purpleish for Sleeping
-                    
-                cv2.putText(image, self.current_posture_state, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.9, state_color, 2, cv2.LINE_AA)
-            
-            # Velocity display
-            if self.velocity_history:
-                vel = self.velocity_history[-1]
-                vel_color = (0, 200, 255) if abs(vel) < self.VELOCITY_THRESHOLD else (0, 0, 255)
-                cv2.putText(image, f"V.vel: {vel:.2f}", (image_width - 200, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, vel_color, 1, cv2.LINE_AA)
-                
-            self.send_event(event_payload, previous_is_fallen)
-        else:
-            # No person detected — still send event so backend knows
-            self.prev_head_y = None
-            self.prev_landmarks = None
-            self.is_fallen = False
-            self.send_event(event_payload, previous_is_fallen)
-                
-        return image
+        self.send_event(event_payload, previous_is_fallen)
         
+        # Draw UI
+        color = (0, 255, 0)
+        if self.is_fallen:
+            color = (0, 0, 255)
+        elif "HORIZONTAL" in self.current_posture_state:
+            color = (0, 165, 255) # Orange warning
+        elif "BLUR" in self.current_posture_state or "MISSING" in self.current_posture_state:
+            color = (150, 150, 150)
+            
+        cv2.putText(output_image, f"STATE: {self.current_posture_state}", (20, 50), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
+
     def send_event(self, payload, previous_is_fallen):
-        """Send CV event to backend. Throttled to avoid spam."""
         current_time = time.time()
         state_changed = (payload["fall_predicted"] != previous_is_fallen)
         
         if state_changed or (current_time - self.last_event_time > 1.0):
             self.last_event_time = current_time
-            
-            import threading
             def _post():
                 try:
                     requests.post(
@@ -306,30 +263,25 @@ class FallDetector:
                         json=payload, 
                         timeout=1.0,
                     )
-                except Exception as e:
-                    pass  # Don't spam console with connection errors
+                except Exception:
+                    pass
             threading.Thread(target=_post, daemon=True).start()
 
+    def __del__(self):
+        self.running = False
 
 if __name__ == "__main__":
     detector = FallDetector()
     cap = cv2.VideoCapture(0)
-    
     print("=" * 50)
-    print("  Multi-Modal Fall Detection — CV Module")
+    print("  Hybrid Fall Detection (MediaPipe + Moondream)")
     print("  Press ESC to exit")
     print("=" * 50)
-    
     while cap.isOpened():
         success, frame = cap.read()
-        if not success:
-            continue
-        
-        output_frame = detector.process_frame(frame)
-        cv2.imshow("Multi-Modal Fall Detection CV", output_frame)
-        
-        if cv2.waitKey(5) & 0xFF == 27:
-            break
-            
+        if not success: continue
+        cv2.imshow("Hybrid CV", detector.process_frame(frame))
+        if cv2.waitKey(5) & 0xFF == 27: break
+    detector.running = False
     cap.release()
     cv2.destroyAllWindows()
