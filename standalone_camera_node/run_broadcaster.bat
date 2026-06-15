@@ -40,9 +40,9 @@ start "CV Stream Server" cmd /c "call venv\Scripts\activate && python stream_ser
 
 echo ==============================================================
 echo Launching Ngrok Tunnel on port 8001...
-echo [✓] Custom Domain: spiritual-depletion-squint.ngrok-free.dev
+echo [✓] Custom Domain: crouch-trapped-stock.ngrok-free.dev
 echo.
 :: Run ngrok in this window using the specific domain
-ngrok http --url=spiritual-depletion-squint.ngrok-free.dev 8001
+ngrok http --domain=crouch-trapped-stock.ngrok-free.dev 8001
 
 pause

@@ -33,7 +33,7 @@ interface DeviceInfo {
   seconds_since_seen: number;
 }
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://crouch-trapped-stock.ngrok-free.dev';
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || 'https://mmfalldetect.onrender.com';
 const CAMERA_URL = import.meta.env.VITE_CAMERA_URL || 'https://crouch-trapped-stock.ngrok-free.dev/video_feed';
 
 export default function App() {
