@@ -44,10 +44,10 @@ echo   1. Access Vercel Dashboard at:
 echo      https://mmfall-detect.vercel.app/
 echo   2. Click the gear settings icon (top-left of camera feed)
 echo   3. Set Backend API URL to: 
-echo      https://impulse-freeness-parlor.ngrok-free.dev
+echo      https://crouch-trapped-stock.ngrok-free.dev
 echo   4. Set Camera Feed URL to:
-echo      https://impulse-freeness-parlor.ngrok-free.dev/video_feed
+echo      https://crouch-trapped-stock.ngrok-free.dev/video_feed
 echo ============================================
 echo.
 
-ngrok http 8000 --domain=impulse-freeness-parlor.ngrok-free.dev
+ngrok http 8000 --domain=crouch-trapped-stock.ngrok-free.dev
