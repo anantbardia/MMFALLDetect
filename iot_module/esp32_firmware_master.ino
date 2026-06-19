@@ -81,6 +81,13 @@ unsigned long lastMovementTime = 0;
 unsigned long lastFreeFallTime = 0;
 bool motionSpikeActive = false;
 
+// ─── Fall State Machine ─────────────────────────
+enum FallState { NORMAL, FREEFALL_DETECTED, IMPACT_DETECTED };
+FallState currentFallState = NORMAL;
+unsigned long freefallTime = 0;
+unsigned long impactTime = 0;
+float postImpactMaxSmv = 0.0;
+
 // Sensor States
 bool imu_ok = false;
 bool max_ok = false;
@@ -289,67 +296,7 @@ void readBattery() {
     batteryLevel = 100;
 }
 
-// ─── Fall Verification (Inactivity + Gyroscope + Tilt Check) ───
-bool verifyFall() {
-    Serial.println("[IMU] Impact detected! Verifying post-fall inactivity for 2 seconds...");
-    unsigned long startVerify = millis();
-    float max_smv = 0.0;
-    float min_smv = 10.0;
-    float max_gyro = 0.0;
-    int samples = 0;
-    
-    // Wait for 500ms to let the bouncing/impact settle
-    delay(500);
-    
-    // Sample high-frequency variance for the next 1500ms
-    startVerify = millis();
-    while (millis() - startVerify < 1500) {
-        readIMU();
-        if (smv > max_smv) max_smv = smv;
-        if (smv < min_smv) min_smv = smv;
-        float gyroMag = sqrt(gx*gx + gy*gy + gz*gz);
-        if (gyroMag > max_gyro) max_gyro = gyroMag;
-        samples++;
-        delay(20);
-    }
-    
-    float variance = max_smv - min_smv;
-    Serial.printf("[IMU] Verification: Samples=%d, Variance=%.3fg, MaxGyro=%.1fdps\n", samples, variance, max_gyro);
-    
-    // GATE 1: If post-impact movement variance is high, person is recovering (false alarm)
-    if (variance >= 0.20) {
-        Serial.println("[IMU] Movement/Vibration detected after impact. FALSE ALARM.");
-        return false;
-    }
-    
-    Serial.println("[IMU] POST-FALL INACTIVITY CONFIRMED. Checking rotation & tilt...");
-    
-    // GATE 2: Gyroscope rotation check — true falls produce >120 deg/s rotation
-    // Desk slams rarely produce significant gyroscope activity
-    if (max_gyro < 120.0) {
-        Serial.printf("[IMU] Gyro rotation too low (%.1f dps). Likely a desk slam. FALSE ALARM.\n", max_gyro);
-        return false;
-    }
-    
-    // GATE 3: 3D Spatial Tilt (orientation change)
-    float post_fall_ax = ax;
-    float post_fall_ay = ay;
-    float post_fall_az = az;
-    
-    float dot_product = (pre_fall_ax * post_fall_ax) + (pre_fall_ay * post_fall_ay) + (pre_fall_az * post_fall_az);
-    float pre_mag = sqrt(pre_fall_ax*pre_fall_ax + pre_fall_ay*pre_fall_ay + pre_fall_az*pre_fall_az);
-    float post_mag = sqrt(post_fall_ax*post_fall_ax + post_fall_ay*post_fall_ay + post_fall_az*post_fall_az);
-    
-    float cos_theta = dot_product / max(pre_mag * post_mag, 0.001f);
-    
-    if (cos_theta > 0.300) {
-        Serial.println("[IMU] Wrist Tilt < 72 deg. Orientation unchanged. FALSE ALARM (Desk slam).");
-        return false;
-    } else {
-        Serial.println("[IMU] ALL GATES PASSED: Inactivity + Rotation + Tilt. TRUE FALL CONFIRMED!");
-        return true;
-    }
-}
+
 
 // ─── Publish Motion Data ────────────────────────
 void publishMotion(bool isConfirmedFall = false) {
@@ -432,26 +379,40 @@ void loop() {
     if (smv < 0.7) lastFreeFallTime = now;
     if (smv > 1.2) lastMovementTime = now;
     
-    // ── Send motion data at regular intervals ──
-    if (now - lastMotionSend >= MOTION_INTERVAL_MS) {
-        if (!motionSpikeActive) publishMotion(false);
-        lastMotionSend = now;
+    // ─── 3-Phase Authentic Fall State Machine ───
+    if (currentFallState == NORMAL) {
+        if (smv < 0.6) {
+            currentFallState = FREEFALL_DETECTED;
+            freefallTime = now;
+            Serial.println("[FALL] Phase 1: Freefall Detected!");
+        }
+    } 
+    else if (currentFallState == FREEFALL_DETECTED) {
+        if (now - freefallTime > 1000) {
+            currentFallState = NORMAL; // Took too long to hit ground
+        } else if (smv > 2.5) {
+            currentFallState = IMPACT_DETECTED;
+            impactTime = now;
+            postImpactMaxSmv = 0.0;
+            Serial.println("[FALL] Phase 2: Impact! Verifying inactivity...");
+        }
+    } 
+    else if (currentFallState == IMPACT_DETECTED) {
+        if (smv > postImpactMaxSmv) postImpactMaxSmv = smv;
         
-        // ── Impact Spike Detected → Verify Fall ──
-        if (smv > SMV_SPIKE_THRESHOLD && !motionSpikeActive) {
-            motionSpikeActive = true;
-            
-            // Filter out table slams: A true fall has a period of free-fall (smv < 0.7) before impact.
-            // Tightened to 1000ms to strictly eliminate jumping or long deliberate actions
-            if (now - lastFreeFallTime > 1000) {
-                Serial.println("[IMU] Impact without preceding free-fall! Likely a desk slam. Ignored.");
-            } else {
-                Serial.println("[ALERT] Impact spike detected! Verifying...");
+        // Allow 500ms for body to stop bouncing on the floor
+        if (now - impactTime > 500) {
+            // If they stand up, SMV spikes > 2.0. Waving hands is usually ~1.5g.
+            if (smv > 2.0) {
+                Serial.println("[FALL] Massive recovery movement detected! Canceling fall.");
+                currentFallState = NORMAL;
+            } else if (now - impactTime > 2000) {
+                // 2 seconds passed without a massive recovery spike!
+                Serial.println("[FALL] Phase 3: Inactivity Confirmed! TRUE AUTHENTIC FALL.");
+                publishMotion(true); // Send authentic_fall
                 
-                if (verifyFall()) {
-                    // TRUE FALL CONFIRMED!
-                    publishMotion(true);
-                    
+                if (!motionSpikeActive) {
+                    motionSpikeActive = true;
                     if (!isConnectedToCloud) {
                         triggerGSMFallback();
                     } else {
@@ -460,14 +421,17 @@ void loop() {
                         publishAudio(distress);
                         if (distress) Serial.println("[ALERT] Distress sound detected!");
                     }
-                } else {
-                    // False alarm, send normal motion
-                    publishMotion(false);
+                    motionSpikeActive = false;
                 }
+                currentFallState = NORMAL;
             }
-            
-            motionSpikeActive = false;  // ALWAYS reset regardless of outcome
         }
+    }
+    
+    // ── Send motion data at regular intervals ──
+    if (now - lastMotionSend >= MOTION_INTERVAL_MS) {
+        publishMotion(false);
+        lastMotionSend = now;
     }
     
     // ── Send vitals at lower frequency ──

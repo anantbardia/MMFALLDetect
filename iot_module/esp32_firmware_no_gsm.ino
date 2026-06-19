@@ -79,6 +79,13 @@
     unsigned long lastMovementTime = 0;
     bool motionSpikeActive = false;
 
+    // ─── Fall State Machine ─────────────────────────
+    enum FallState { NORMAL, FREEFALL_DETECTED, IMPACT_DETECTED };
+    FallState currentFallState = NORMAL;
+    unsigned long freefallTime = 0;
+    unsigned long impactTime = 0;
+    float postImpactMaxSmv = 0.0;
+
     // Sensor States
     bool imu_ok = false;
     bool max_ok = false;
@@ -248,9 +255,11 @@
     }
 
     // ─── Publish Motion Data ────────────────────────
-    void publishMotion() {
+    void publishMotion(bool isAuthenticFall = false) {
         char motionType[16] = "normal";
-        if (smv > SMV_SPIKE_THRESHOLD) {
+        if (isAuthenticFall) {
+            strcpy(motionType, "authentic_fall");
+        } else if (smv > SMV_SPIKE_THRESHOLD) {
             strcpy(motionType, "sudden");
         }
         
@@ -351,27 +360,55 @@
             lastMovementTime = now;
         }
         
+        // ─── 3-Phase Authentic Fall State Machine ───
+        if (currentFallState == NORMAL) {
+            if (smv < 0.6) {
+                currentFallState = FREEFALL_DETECTED;
+                freefallTime = now;
+                Serial.println("[FALL] Phase 1: Freefall Detected!");
+            }
+        } 
+        else if (currentFallState == FREEFALL_DETECTED) {
+            if (now - freefallTime > 1000) {
+                currentFallState = NORMAL; // Took too long to hit ground
+            } else if (smv > 2.5) {
+                currentFallState = IMPACT_DETECTED;
+                impactTime = now;
+                postImpactMaxSmv = 0.0;
+                Serial.println("[FALL] Phase 2: Impact! Verifying inactivity...");
+            }
+        } 
+        else if (currentFallState == IMPACT_DETECTED) {
+            if (smv > postImpactMaxSmv) postImpactMaxSmv = smv;
+            
+            // Allow 500ms for body to stop bouncing on the floor
+            if (now - impactTime > 500) {
+                // If they stand up, SMV spikes > 2.0. Waving hands is usually ~1.5g.
+                if (smv > 2.0) {
+                    Serial.println("[FALL] Massive recovery movement detected! Canceling fall.");
+                    currentFallState = NORMAL;
+                } else if (now - impactTime > 2000) {
+                    // 2 seconds passed without a massive recovery spike!
+                    Serial.println("[FALL] Phase 3: Inactivity Confirmed! TRUE AUTHENTIC FALL.");
+                    publishMotion(true); // Send authentic_fall
+                    
+                    if (!motionSpikeActive) {
+                        motionSpikeActive = true;
+                        Serial.println("Activating microphone...");
+                        bool distress = detectVoiceActivity();
+                        publishAudio(distress);
+                        if (distress) Serial.println("[ALERT] Distress sound detected!");
+                        motionSpikeActive = false;
+                    }
+                    currentFallState = NORMAL;
+                }
+            }
+        }
+        
         // ── Send motion data at regular intervals ──
         if (now - lastMotionSend >= MOTION_INTERVAL_MS) {
-            publishMotion();
+            publishMotion(false);
             lastMotionSend = now;
-            
-            // ── Motion spike → activate microphone ──
-            if (smv > SMV_SPIKE_THRESHOLD && !motionSpikeActive) {
-                motionSpikeActive = true;
-                Serial.println("[ALERT] Motion spike detected!");
-                
-                // Normal Cloud Execution
-                Serial.println("Activating microphone...");
-                bool distress = detectVoiceActivity();
-                publishAudio(distress);
-                
-                if (distress) {
-                    Serial.println("[ALERT] Distress sound detected!");
-                }
-                
-                motionSpikeActive = false;
-            }
         }
         
         // ── Send vitals at lower frequency ──

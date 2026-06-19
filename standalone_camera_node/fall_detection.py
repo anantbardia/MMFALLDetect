@@ -328,7 +328,7 @@ class FallDetector:
             self.is_fallen = False
             self.consecutive_fall_frames = 0
             
-            if self.vlm_state in ["STANDING", "SITTING"]:
+            if self.vlm_state in ["STANDING", "SITTING", "BENDING", "SLEEPING"]:
                 self.current_posture_state = f"{self.vlm_state} (VLM)"
             else:
                 if is_close_up or legs_off_screen:
@@ -344,7 +344,7 @@ class FallDetector:
             self.vlm_active = True
             self.latest_frame_for_vlm = frame.copy()
             
-            if self.vlm_state in ["STANDING", "SITTING", "BENDING"]:
+            if self.vlm_state in ["STANDING", "SITTING", "BENDING", "SLEEPING"]:
                 self.current_posture_state = f"{self.vlm_state} (VLM)"
             else:
                 self.current_posture_state = "BENDING"
