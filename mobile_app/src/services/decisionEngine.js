@@ -113,19 +113,7 @@ class DecisionEngine {
   }
 
   triggerAlarm() {
-    const now = Date.now();
-    // Cooldown: suppress duplicate notifications within 60s
-    if (now - this.lastNotificationTime < this.NOTIFICATION_COOLDOWN_MS) {
-      console.log('[DecisionEngine] Alarm suppressed (cooldown active)');
-      return;
-    }
-    this.lastNotificationTime = now;
-    
-    console.log('[DecisionEngine] TRIGGERING ALARM!');
-    notificationService.sendLocalNotification(
-      '⚠️ CRITICAL: FALL DETECTED!',
-      'Immediate attention required. Fall verified by active sensors.'
-    );
+    console.log('[DecisionEngine] TRIGGERING ALARM! (Local Notification Disabled - relying on backend Expo Push)');
   }
 }
 

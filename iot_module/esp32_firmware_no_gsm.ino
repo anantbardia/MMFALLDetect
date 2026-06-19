@@ -69,6 +69,9 @@
     float ax, ay, az;       // Accelerometer (g)
     float gx, gy, gz;       // Gyroscope (deg/s)
     float smv;              // Signal Magnitude Vector
+    float pre_fall_ax = 0.0;
+    float pre_fall_ay = 0.0;
+    float pre_fall_az = 1.0;
     int heartRate = 75;
     int spo2 = 98;
     int batteryLevel = 100;
@@ -360,26 +363,46 @@
             lastMovementTime = now;
         }
         
+        // Maintain a continuous Low-Pass Filter of the gravity vector
+        if (smv > 0.8 && smv < 1.2 && !motionSpikeActive) {
+            pre_fall_ax = (pre_fall_ax * 0.95) + (ax * 0.05);
+            pre_fall_ay = (pre_fall_ay * 0.95) + (ay * 0.05);
+            pre_fall_az = (pre_fall_az * 0.95) + (az * 0.05);
+        }
+        
+        float gyroMag = sqrt(gx*gx + gy*gy + gz*gz);
+        
         // ─── 3-Phase Authentic Fall State Machine ───
         if (currentFallState == NORMAL) {
-            if (smv < 0.6) {
+            if (smv < 0.5) { // Lowered from 0.6g to 0.5g for a purer freefall
                 currentFallState = FREEFALL_DETECTED;
                 freefallTime = now;
-                Serial.println("[FALL] Phase 1: Freefall Detected!");
+                maxTumbleGyro = gyroMag;
+                pre_fall_ax = ax; pre_fall_ay = ay; pre_fall_az = az;
+                Serial.println("[FALL] Phase 1: Freefall Detected! (<0.5g)");
             }
         } 
         else if (currentFallState == FREEFALL_DETECTED) {
-            if (now - freefallTime > 1000) {
+            if (gyroMag > maxTumbleGyro) maxTumbleGyro = gyroMag;
+            
+            if (now - freefallTime > 1200) {
                 currentFallState = NORMAL; // Took too long to hit ground
-            } else if (smv > 2.5) {
-                currentFallState = IMPACT_DETECTED;
-                impactTime = now;
-                postImpactMaxSmv = 0.0;
-                Serial.println("[FALL] Phase 2: Impact! Verifying inactivity...");
+            } else if (smv > 3.2) { // Increased from 2.5g to 3.2g
+                if (now - freefallTime < 400) {
+                    // Humans take ~450ms+ to fall 1 meter. Hand slaps happen in <300ms.
+                    Serial.println("[IMU] Impact too fast (<400ms)! Desk slam detected. Ignored.");
+                    currentFallState = NORMAL;
+                } else {
+                    currentFallState = IMPACT_DETECTED;
+                    impactTime = now;
+                    postImpactMaxSmv = 0.0;
+                    Serial.println("[FALL] Phase 2: Impact! Verifying inactivity and tumbling...");
+                }
             }
         } 
         else if (currentFallState == IMPACT_DETECTED) {
             if (smv > postImpactMaxSmv) postImpactMaxSmv = smv;
+            if (gyroMag > maxTumbleGyro) maxTumbleGyro = gyroMag;
             
             // Allow 500ms for body to stop bouncing on the floor
             if (now - impactTime > 500) {
@@ -389,9 +412,6 @@
                     currentFallState = NORMAL;
                 } else if (now - impactTime > 2000) {
                     // 2 seconds passed without a massive recovery spike!
-                    Serial.println("[FALL] Phase 3: Inactivity Confirmed! TRUE AUTHENTIC FALL.");
-                    publishMotion(true); // Send authentic_fall
-                    
                     if (!motionSpikeActive) {
                         motionSpikeActive = true;
                         Serial.println("Activating microphone...");

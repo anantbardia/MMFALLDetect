@@ -94,6 +94,18 @@ def generate_frames():
 def video_feed():
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
+@app.get("/")
+def index():
+    html_content = """
+    <html>
+      <body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;">
+        <img src="/video_feed" style="width:100%;max-height:100%;object-fit:contain;" />
+      </body>
+    </html>
+    """
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html_content)
+
 if __name__ == "__main__":
     print("[INFO] Starting M-JPEG stream server on http://0.0.0.0:8001/video_feed")
     uvicorn.run(app, host="0.0.0.0", port=8001)

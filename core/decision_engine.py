@@ -364,6 +364,15 @@ class DecisionEngine:
             )
             self._log_event("EMERGENCY_ALERT_SENT", fall_score, {"hr": hr, "spo2": spo2})
             
+        # ── Rule 5: State Decay (Auto-Reset to NORMAL) ──
+        current_state = self.state_manager.state
+        if current_state in [SystemState.FALL_CONFIRMED, SystemState.ALERT_SENT]:
+            # If 60 seconds have passed since the LAST fall evidence, reset the system
+            time_since_last_evidence = current_time - max(self.last_cv_fall_time, self.last_accel_spike_time)
+            if time_since_last_evidence > 60.0:
+                self.state_manager.reset_to_normal("Auto-recovery: 60s passed without new fall evidence")
+                self.reset_history()
+            
         return self.state_manager.get_current_state()
     
     # ──────────────────────────────────────────────

@@ -87,6 +87,7 @@ FallState currentFallState = NORMAL;
 unsigned long freefallTime = 0;
 unsigned long impactTime = 0;
 float postImpactMaxSmv = 0.0;
+float maxTumbleGyro = 0.0;
 
 // Sensor States
 bool imu_ok = false;
@@ -376,29 +377,41 @@ void loop() {
         pre_fall_az = (pre_fall_az * 0.95) + (az * 0.05);
     }
     
+    float gyroMag = sqrt(gx*gx + gy*gy + gz*gz);
+    
     if (smv < 0.7) lastFreeFallTime = now;
     if (smv > 1.2) lastMovementTime = now;
     
     // ─── 3-Phase Authentic Fall State Machine ───
     if (currentFallState == NORMAL) {
-        if (smv < 0.6) {
+        if (smv < 0.5) { // Lowered from 0.6g to 0.5g for a purer freefall
             currentFallState = FREEFALL_DETECTED;
             freefallTime = now;
-            Serial.println("[FALL] Phase 1: Freefall Detected!");
+            maxTumbleGyro = gyroMag;
+            Serial.println("[FALL] Phase 1: Freefall Detected! (<0.5g)");
         }
     } 
     else if (currentFallState == FREEFALL_DETECTED) {
-        if (now - freefallTime > 1000) {
+        if (gyroMag > maxTumbleGyro) maxTumbleGyro = gyroMag;
+        
+        if (now - freefallTime > 1200) {
             currentFallState = NORMAL; // Took too long to hit ground
-        } else if (smv > 2.5) {
-            currentFallState = IMPACT_DETECTED;
-            impactTime = now;
-            postImpactMaxSmv = 0.0;
-            Serial.println("[FALL] Phase 2: Impact! Verifying inactivity...");
+        } else if (smv > 3.2) { // Increased from 2.5g to 3.2g for harder impact requirement
+            if (now - freefallTime < 400) {
+                // Humans take ~450ms+ to fall 1 meter. Hand slaps happen in <300ms.
+                Serial.println("[IMU] Impact too fast (<400ms)! Desk slam detected. Ignored.");
+                currentFallState = NORMAL;
+            } else {
+                currentFallState = IMPACT_DETECTED;
+                impactTime = now;
+                postImpactMaxSmv = 0.0;
+                Serial.println("[FALL] Phase 2: Impact! Verifying inactivity and tumbling...");
+            }
         }
     } 
     else if (currentFallState == IMPACT_DETECTED) {
         if (smv > postImpactMaxSmv) postImpactMaxSmv = smv;
+        if (gyroMag > maxTumbleGyro) maxTumbleGyro = gyroMag;
         
         // Allow 500ms for body to stop bouncing on the floor
         if (now - impactTime > 500) {
@@ -408,20 +421,38 @@ void loop() {
                 currentFallState = NORMAL;
             } else if (now - impactTime > 2000) {
                 // 2 seconds passed without a massive recovery spike!
-                Serial.println("[FALL] Phase 3: Inactivity Confirmed! TRUE AUTHENTIC FALL.");
-                publishMotion(true); // Send authentic_fall
                 
-                if (!motionSpikeActive) {
-                    motionSpikeActive = true;
-                    if (!isConnectedToCloud) {
-                        triggerGSMFallback();
-                    } else {
-                        Serial.println("Activating microphone for distress audio...");
-                        bool distress = detectVoiceActivity();
-                        publishAudio(distress);
-                        if (distress) Serial.println("[ALERT] Distress sound detected!");
+                // GATE 3: 3D Spatial Tilt (Orientation Change)
+                // Did their wrist/body actually rotate 90 degrees to the floor?
+                float dot_product = (pre_fall_ax * ax) + (pre_fall_ay * ay) + (pre_fall_az * az);
+                float pre_mag = sqrt(pre_fall_ax*pre_fall_ax + pre_fall_ay*pre_fall_ay + pre_fall_az*pre_fall_az);
+                float current_mag = sqrt(ax*ax + ay*ay + az*az);
+                float denom = pre_mag * current_mag;
+                if (denom < 0.001f) denom = 0.001f;
+                float cos_theta = dot_product / denom;
+                
+                // GATE 4: Gyroscopic Tumble Check
+                // Desk slams are linear. Real falls involve chaotic tumbling/crumpling > 150 deg/s
+                if (cos_theta > 0.300) {
+                    Serial.println("[IMU] Orientation unchanged. Desk Slam FALSE ALARM. Canceled.");
+                } else if (maxTumbleGyro < 150.0) {
+                    Serial.printf("[IMU] Tumble rotation too low (%.1f dps). Desk Slam FALSE ALARM. Canceled.\n", maxTumbleGyro);
+                } else {
+                    Serial.println("[FALL] Phase 3: ALL GATES PASSED! TRUE AUTHENTIC FALL.");
+                    publishMotion(true); // Send authentic_fall
+                    
+                    if (!motionSpikeActive) {
+                        motionSpikeActive = true;
+                        if (!isConnectedToCloud) {
+                            triggerGSMFallback();
+                        } else {
+                            Serial.println("Activating microphone for distress audio...");
+                            bool distress = detectVoiceActivity();
+                            publishAudio(distress);
+                            if (distress) Serial.println("[ALERT] Distress sound detected!");
+                        }
+                        motionSpikeActive = false;
                     }
-                    motionSpikeActive = false;
                 }
                 currentFallState = NORMAL;
             }

@@ -14,6 +14,7 @@ export default function DashboardScreen() {
   
   const [baseUrl, setBaseUrl] = useState('https://mmfalldetect.onrender.com');
   const [cameraUrl, setCameraUrl] = useState('https://crouch-trapped-stock.ngrok-free.dev');
+  const streamUrl = 'https://crouch-trapped-stock.ngrok-free.dev/';
 
   useFocusEffect(
     useCallback(() => {
@@ -157,26 +158,23 @@ export default function DashboardScreen() {
   // Trigger Local Notification on Fall (Throttled to max 1 per 60 seconds)
   const lastNotificationTime = useRef(0);
   
+  // NOTE: Local notifications are disabled because the backend api_server.py
+  // perfectly handles debounced Expo Push Notifications. This prevents double/bombardment alerts.
   useEffect(() => {
-    if (['POSSIBLE_FALL', 'FALL_CONFIRMED'].includes(systemState)) {
-      const now = Date.now();
-      if (now - lastNotificationTime.current > 60000) {
-        lastNotificationTime.current = now;
-        notificationService.sendLocalNotification(
-          '⚠️ FALL DETECTED!', 
-          `Critical alert: System state is currently ${systemState.replace('_', ' ')}`
-        );
-      }
-    } else if (systemState === 'NORMAL') {
-      lastNotificationTime.current = 0; // Reset throttle so next fall alerts instantly
+    if (systemState === 'NORMAL') {
+      lastNotificationTime.current = 0;
     }
   }, [systemState]);
 
   // Auto-recovery: if system stays in alarm for 60s with backend returning NORMAL, auto-clear
+  const lastHapticsTime = useRef(0);
   useEffect(() => {
     if (systemState === 'FALL_CONFIRMED' || systemState === 'ALERT_SENT') {
-      // Vibrate phone on fall detection
-      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); } catch(e) {}
+      const now = Date.now();
+      if (now - lastHapticsTime.current > 5000) {
+        lastHapticsTime.current = now;
+        try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); } catch(e) {}
+      }
     }
   }, [systemState]);
 
@@ -405,7 +403,7 @@ export default function DashboardScreen() {
       {/* Live Camera Feed */}
       <Text style={styles.sectionTitle}>Camera Feed</Text>
       <View style={{ marginBottom: 16 }}>
-        <CameraFeed streamUrl={`${cameraUrl}/video_feed`} title="Primary Camera Node" />
+        <CameraFeed streamUrl={`${cameraUrl}/`} title="Primary Camera Node" />
       </View>
 
       {/* Device Health */}
