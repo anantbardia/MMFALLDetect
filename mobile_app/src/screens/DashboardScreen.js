@@ -109,6 +109,9 @@ export default function DashboardScreen() {
               setHasVitals(true);
               setVitals(v => ({ hr: msg.data.heart_rate ?? v.hr, spo2: msg.data.spo2 ?? v.spo2 }));
             }
+            if (msg.smv !== undefined) {
+              setMotion(prev => ({ ...prev, smv: msg.smv }));
+            }
           }
           
           // Fallback to backend system_state only if decision engine isn't overriding

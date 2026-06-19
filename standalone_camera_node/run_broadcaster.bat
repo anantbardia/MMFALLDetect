@@ -40,7 +40,7 @@ if not exist "pose_landmarker_lite.task" (
 echo.
 echo [5/5] Launching Fast MJPEG Camera Server...
 :: Use "start" to run it in a separate window so the script can continue
-start "CV Stream Server" cmd /c "call venv\Scripts\activate && python stream_server.py & pause"
+start "CV Stream Server" cmd /c "call venv\Scripts\activate && set CAMERA_SOURCE=2 && python stream_server.py & pause"
 
 echo ==============================================================
 echo Launching Ngrok Tunnel on port 8001...

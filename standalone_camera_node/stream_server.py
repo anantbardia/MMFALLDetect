@@ -29,10 +29,14 @@ import time
 
 class ThreadedCamera:
     def __init__(self, src=0):
-        self.cap = cv2.VideoCapture(src)
+        if isinstance(src, int) and os.name == 'nt':
+            self.cap = cv2.VideoCapture(src, cv2.CAP_DSHOW)
+        else:
+            self.cap = cv2.VideoCapture(src)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         self.grabbed, self.frame = self.cap.read()
         self.frame_id = 0
         self.stopped = False
@@ -49,7 +53,15 @@ class ThreadedCamera:
     def read(self):
         return self.grabbed, self.frame, self.frame_id
 
-cap = ThreadedCamera(0)
+CAMERA_SOURCE = os.environ.get("CAMERA_SOURCE", "0")
+try:
+    # Try parsing as an integer index (e.g., 0, 1, 2)
+    cam_src = int(CAMERA_SOURCE)
+except ValueError:
+    # Use as a URL (e.g., IP Webcam http://192.168.x.x:8080/video)
+    cam_src = CAMERA_SOURCE
+
+cap = ThreadedCamera(cam_src)
 
 def generate_frames():
     last_frame_id = -1

@@ -89,7 +89,10 @@ export default function CameraFeed({ streamUrl, title }) {
           <>
             <WebView
               style={styles.webview}
-              source={{ html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;"><img src="${streamUrl}" style="width:100%;height:100%;object-fit:contain;" /></body></html>` }}
+              source={{ 
+                uri: streamUrl, 
+                headers: { 'ngrok-skip-browser-warning': 'true' } 
+              }}
               scrollEnabled={false}
               showsHorizontalScrollIndicator={false}
               showsVerticalScrollIndicator={false}
@@ -124,7 +127,7 @@ export default function CameraFeed({ streamUrl, title }) {
         <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
           <WebView
             style={{ flex: 1, backgroundColor: 'black' }}
-            source={{ html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;"><img src="${streamUrl}" style="width:100%;height:100%;object-fit:contain;" /></body></html>` }}
+            source={{ uri: streamUrl, headers: { 'ngrok-skip-browser-warning': 'true' } }}
             scrollEnabled={false}
           />
           <TouchableOpacity 

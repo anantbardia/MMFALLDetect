@@ -189,6 +189,9 @@ class FallDetector:
                         self.confidence = 0.98
                     else:
                         self.vlm_state = raw_prediction
+                    
+                    # Prevent VLM from hogging 100% CPU and killing camera stream FPS
+                    time.sleep(0.5)
                 else:
                     self.vlm_state = "OLLAMA ERROR"
                     time.sleep(2.0)
