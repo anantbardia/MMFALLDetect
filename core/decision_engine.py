@@ -48,8 +48,8 @@ class DecisionEngine:
         
         # ── CV Fall Debounce (require N events in window to prevent single-frame glitches) ──
         self.cv_fall_event_times = []  # timestamps of recent CV fall events
-        self.CV_DEBOUNCE_COUNT = 3     # need 3 CV fall events
-        self.CV_DEBOUNCE_WINDOW = 2.0  # within 2 seconds
+        self.CV_DEBOUNCE_COUNT = 2     # need 2 CV fall events
+        self.CV_DEBOUNCE_WINDOW = 5.0  # within 5 seconds
         
         # ── Configuration thresholds ──
         self.TIME_SYNC_WINDOW = 3.0       # seconds between CV and Accel events

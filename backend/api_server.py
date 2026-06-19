@@ -158,7 +158,7 @@ async def receive_cv_event(patient_id: str, event: Dict[str, Any]):
     
     new_state = engine.process_cv_event(event)
     
-    if new_state == "FALL_CONFIRMED" and old_state != "FALL_CONFIRMED":
+    if (new_state in ["FALL_CONFIRMED", "MEDICAL_ALERT", "ALERT_SENT"]) and (old_state not in ["FALL_CONFIRMED", "MEDICAL_ALERT", "ALERT_SENT"]):
         send_expo_push_notification(
             patient_id, 
             "CRITICAL ALERT: Fall Detected", 
@@ -192,7 +192,7 @@ async def receive_iot_event(patient_id: str, event: Dict[str, Any]):
     # Uses engine's internal is_person_visible (context-aware, spec §8)
     new_state = engine.process_iot_event(event)
 
-    if new_state == "FALL_CONFIRMED" and old_state != "FALL_CONFIRMED":
+    if (new_state in ["FALL_CONFIRMED", "MEDICAL_ALERT", "ALERT_SENT"]) and (old_state not in ["FALL_CONFIRMED", "MEDICAL_ALERT", "ALERT_SENT"]):
         send_expo_push_notification(
             patient_id, 
             "CRITICAL ALERT: Fall Detected", 
