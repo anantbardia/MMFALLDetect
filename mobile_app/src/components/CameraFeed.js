@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Modal, SafeAreaView, Image } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { useTheme } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -86,10 +87,12 @@ export default function CameraFeed({ streamUrl, title }) {
       <View style={styles.videoWrapper}>
         {streamUrl && !error ? (
           <>
-            <Image
+            <WebView
               style={styles.webview}
-              source={{ uri: streamUrl }}
-              resizeMode="contain"
+              source={{ html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;"><img src="${streamUrl}" style="width:100%;height:100%;object-fit:contain;" /></body></html>` }}
+              scrollEnabled={false}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
               onLoadStart={() => setLoading(true)}
               onLoadEnd={() => setLoading(false)}
               onError={() => {
@@ -119,10 +122,10 @@ export default function CameraFeed({ streamUrl, title }) {
 
       <Modal visible={isFullScreen} animationType="fade" transparent={false} onRequestClose={() => setIsFullScreen(false)}>
         <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
-          <Image
-            style={{ width: '100%', height: '100%', backgroundColor: 'black' }}
-            source={{ uri: streamUrl }}
-            resizeMode="contain"
+          <WebView
+            style={{ flex: 1, backgroundColor: 'black' }}
+            source={{ html: `<html><body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;"><img src="${streamUrl}" style="width:100%;height:100%;object-fit:contain;" /></body></html>` }}
+            scrollEnabled={false}
           />
           <TouchableOpacity 
             onPress={() => setIsFullScreen(false)} 

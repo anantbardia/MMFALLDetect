@@ -95,6 +95,10 @@ export default function App() {
 
   const activeTheme = isDarkTheme ? CustomDarkTheme : CustomDefaultTheme;
 
+  const renderSettings = React.useCallback((props) => (
+    <SettingsScreen {...props} isDarkTheme={isDarkTheme} toggleTheme={toggleTheme} />
+  ), [isDarkTheme]);
+
   // Show a premium loading spinner while Firebase checks the user session
   if (isAuthLoading) {
     return (
@@ -146,9 +150,7 @@ export default function App() {
         >
           <Tab.Screen name="Dashboard" component={DashboardScreen} />
           <Tab.Screen name="Events" component={EventsScreen} />
-          <Tab.Screen name="Settings">
-            {() => <SettingsScreen isDarkTheme={isDarkTheme} toggleTheme={toggleTheme} />}
-          </Tab.Screen>
+          <Tab.Screen name="Settings" component={renderSettings} />
         </Tab.Navigator>
       ) : (
         // Authentication Flow (Public Login / Signup)

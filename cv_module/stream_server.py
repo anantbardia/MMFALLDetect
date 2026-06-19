@@ -83,5 +83,5 @@ def video_feed():
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 if __name__ == "__main__":
-    print("[INFO] Starting M-JPEG stream server on http://localhost:8001/video_feed")
-    uvicorn.run("stream_server:app", host="0.0.0.0", port=8001, reload=False)
+    print("[INFO] Starting M-JPEG stream server on http://localhost:8001/video_feed", flush=True)
+    uvicorn.run("cv_module.stream_server:app", host="0.0.0.0", port=8001)

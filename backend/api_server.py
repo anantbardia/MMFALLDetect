@@ -36,8 +36,23 @@ app.add_middleware(
 # ──────────────────────────────────────────────
 engines: Dict[str, DecisionEngine] = {}
 active_connections: Dict[str, List[WebSocket]] = {}
+import json
 patient_push_tokens: Dict[str, str] = {}
+TOKENS_FILE = os.path.join(os.path.dirname(__file__), "push_tokens.json")
 
+try:
+    if os.path.exists(TOKENS_FILE):
+        with open(TOKENS_FILE, "r") as f:
+            patient_push_tokens = json.load(f)
+except Exception as e:
+    print(f"Failed to load push tokens: {e}")
+
+def save_push_tokens():
+    try:
+        with open(TOKENS_FILE, "w") as f:
+            json.dump(patient_push_tokens, f)
+    except Exception as e:
+        print(f"Failed to save push tokens: {e}")
 # Simulated device registry (in production, this comes from DB)
 device_registry: Dict[str, Dict[str, Any]] = {
     "AA:BB:CC:DD:EE:01": {
@@ -233,6 +248,7 @@ class PushTokenPayload(BaseModel):
 @app.post("/api/v1/notifications/register")
 async def register_push_token(payload: PushTokenPayload):
     patient_push_tokens[payload.patient_id] = payload.token
+    save_push_tokens()
     print(f"Registered push token for {payload.patient_id}: {payload.token}")
     return {"status": "ok"}
 

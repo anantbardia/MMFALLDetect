@@ -85,6 +85,7 @@ class FallDetector:
         self.vlm_state = "AWAITING VLM..."
         self.ollama_url = "http://localhost:11434/api/generate"
         self.vlm_active = False
+        self.geometric_hint = "UNKNOWN"
 
         self.running = True
         self.inference_thread = threading.Thread(target=self._ollama_inference_loop, daemon=True)
@@ -138,40 +139,46 @@ class FallDetector:
 
     # ─── VLM Inference Thread ─────────────────────────
     def _ollama_inference_loop(self):
-        """Background thread: only runs when geometry detects horizontal body."""
+        """Background thread: runs continuously when a person is detected to provide context-aware posture classification."""
         while self.running:
             if not self.vlm_active or self.latest_frame_for_vlm is None:
                 time.sleep(0.1)
                 continue
             try:
-                small_frame = cv2.resize(self.latest_frame_for_vlm, (400, 300))
-                _, buffer = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                small_frame = cv2.resize(self.latest_frame_for_vlm, (224, 224))
+                _, buffer = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 b64_image = base64.b64encode(buffer).decode('utf-8')
 
-                prompt = ("The person is lying down. Look at what is underneath them. "
-                          "Are they lying on the FLOOR, or are they lying on a BED or SOFA? "
-                          "Answer with exactly one word: FLOOR or FURNITURE.")
+                hint = getattr(self, 'geometric_hint', 'UNKNOWN')
+                prompt = (
+                    f"Geometry: '{hint}'. Classify posture: STANDING, SITTING, BENDING, LYING_FLOOR, LYING_BED. Answer with exactly 1 word."
+                )
 
                 payload = {
                     "model": "llava",
                     "prompt": prompt,
                     "images": [b64_image],
-                    "stream": False
+                    "stream": False,
+                    "options": {
+                        "num_predict": 5,
+                        "temperature": 0.1
+                    }
                 }
 
                 response = requests.post(self.ollama_url, json=payload, timeout=10.0)
                 if response.status_code == 200:
                     result_text = response.json().get("response", "").strip().upper()
 
-                    # Normalize negations
-                    if "NOT" in result_text:
-                        result_text = result_text.replace("NOT FLOOR", "FURNITURE")
-                        result_text = result_text.replace("NOT FURNITURE", "FLOOR")
-
                     raw_prediction = "VLM: UNKNOWN"
-                    if any(kw in result_text for kw in ["FLOOR", "GROUND", "CARPET", "TILE", "CONCRETE"]):
+                    if "STANDING" in result_text:
+                        raw_prediction = "STANDING"
+                    elif "SITTING" in result_text:
+                        raw_prediction = "SITTING"
+                    elif "BENDING" in result_text:
+                        raw_prediction = "BENDING"
+                    elif "LYING_FLOOR" in result_text or "FLOOR" in result_text:
                         raw_prediction = "FALL DETECTED"
-                    elif any(kw in result_text for kw in ["FURNITURE", "BED", "SOFA", "CHAIR", "COUCH", "MATTRESS"]):
+                    elif "LYING_BED" in result_text or "BED" in result_text or "FURNITURE" in result_text:
                         raw_prediction = "SLEEPING"
 
                     self.prediction_history.append(raw_prediction)
@@ -205,14 +212,23 @@ class FallDetector:
         detection_result = self.detector.detect(mp_image)
 
         if not detection_result.pose_landmarks:
-            self.current_posture_state = "NO PERSON DETECTED"
             self.is_fallen = False
-            self.vlm_active = False
-            self.prediction_history.clear()
+            self.vlm_active = True
+            self.geometric_hint = "NO_PERSON_DETECTED"
+            self.latest_frame_for_vlm = frame.copy()
             self.consecutive_fall_frames = 0
             self.prev_head_y = None
             self.prev_landmarks = None
-            # Don't break latch — person might have fallen out of frame
+            
+            # Allow VLM to override "NO PERSON" if it spots someone lying down
+            if self.vlm_state in ["FALL DETECTED", "SLEEPING", "STANDING", "SITTING", "BENDING"]:
+                self.current_posture_state = f"{self.vlm_state} (VLM OVERRIDE)"
+                if self.vlm_state == "FALL DETECTED":
+                    self.is_fallen = True
+            else:
+                self.current_posture_state = "NO PERSON DETECTED"
+                self.prediction_history.clear()
+                
             self._finalize_frame(output_image, previous_is_fallen)
             return output_image
 
@@ -303,29 +319,39 @@ class FallDetector:
 
         if self.smoothed_torso_angle > 50.0:
             # ── UPRIGHT TORSO ──
-            self.vlm_active = False
+            self.geometric_hint = "UPRIGHT"
+            self.vlm_active = True
+            self.latest_frame_for_vlm = frame.copy()
             self.is_fallen = False
             self.consecutive_fall_frames = 0
-            # Clear stale VLM state when person is clearly upright
-            self.vlm_state = "AWAITING VLM..."
-            self.prediction_history.clear()
-
-            if is_close_up or legs_off_screen:
-                self.current_posture_state = "STANDING"
-            elif self.smoothed_femur_ratio < 0.65:
-                self.current_posture_state = "SITTING"
+            
+            if self.vlm_state in ["STANDING", "SITTING"]:
+                self.current_posture_state = f"{self.vlm_state} (VLM)"
             else:
-                self.current_posture_state = "STANDING"
+                if is_close_up or legs_off_screen:
+                    self.current_posture_state = "STANDING"
+                elif self.smoothed_femur_ratio < 0.65:
+                    self.current_posture_state = "SITTING"
+                else:
+                    self.current_posture_state = "STANDING"
 
         elif self.smoothed_torso_angle > 30.0 and head_above_hips:
             # ── BENDING GATE (30-50° torso, head still above hips) ──
-            self.current_posture_state = "BENDING"
-            self.vlm_active = False
+            self.geometric_hint = "BENDING"
+            self.vlm_active = True
+            self.latest_frame_for_vlm = frame.copy()
+            
+            if self.vlm_state in ["STANDING", "SITTING", "BENDING"]:
+                self.current_posture_state = f"{self.vlm_state} (VLM)"
+            else:
+                self.current_posture_state = "BENDING"
+                
             self.is_fallen = False
             self.consecutive_fall_frames = 0
 
         else:
             # ── HORIZONTAL TORSO (< 30° or < 50° with head at/below hips) ──
+            self.geometric_hint = "HORIZONTAL"
             if is_close_up:
                 self.current_posture_state = "STANDING (CLOSE-UP)"
                 self.vlm_active = False

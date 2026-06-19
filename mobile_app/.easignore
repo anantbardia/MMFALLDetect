@@ -1,0 +1,12 @@
+../backend/
+../core/
+../cv_module/
+../dashboard/
+../docs/
+../iot_module/
+../mosquitto/
+../standalone_camera_node/
+../venv/
+../*.csv
+../*.zip
+../*.db
