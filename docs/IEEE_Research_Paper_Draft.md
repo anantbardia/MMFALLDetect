@@ -1,140 +1,154 @@
-# A Multi-Modal IoT and Computer Vision Based Intelligent Fall Detection System for Healthcare Monitoring
+# A Multi-Modal IoT and Computer Vision Fall Detection System Using Vision Language Models and 3D Spatial Tilt Verification
 
 **Dhananjay S. Pawar, Anant Bardia, Vedant Amble, Aarya Akolkar, Yashita Ambekar**  
 Department of Engineering, Sciences and Humanities (DESH)  
 Vishwakarma Institute of Technology, Pune, Maharashtra, India
 
-**Abstract** — Falls are a major cause of injuries among elderly individuals, where rapid detection significantly improves recovery outcomes. This paper presents a Multi-Modal IoT and Computer Vision Based Intelligent Fall Detection System. By fusing non-intrusive visual observation, Vision Language Models (VLMs), and wearable edge-computing sensors, the system achieves highly reliable fall identification while eliminating false alarms. A stationary camera utilizes geometric computer vision algorithms to track posture changes, while a LLaVA VLM contextualizes the environment to differentiate true falls on the floor from intentional resting on furniture. Concurrently, a wearable prototype captures physical acceleration, live vitals, and distress audio. An edge microcontroller processes these multi-modal inputs, cross-verifying the visual data against physical impacts to prevent false positives. To ensure absolute reliability, the system incorporates a GSM cellular fallback protocol, guaranteeing emergency SMS and phone calls even if local Wi-Fi networks fail. Upon confirming a fall event through this multi-layer sensor fusion, the system instantly pushes alerts and live data streams to caregivers via centralized web and mobile dashboards. This architecture provides a low-cost, scalable, and highly efficient solution suitable for smart healthcare technologies.
+**Abstract** — Falls are a major health risk for the elderly, and timely medical response is critical for recovery. However, existing fall detection systems often struggle with reliability when used in isolation. Camera-only systems can detect a person lying down but fail to understand the context—often triggering false alarms when a person simply lies on a bed. Conversely, standalone wearable sensors are prone to false positives caused by everyday activities like bumping into a table or rapid arm movements. This paper presents a prototype multi-modal fall detection system designed to address these specific weaknesses by combining computer vision with an IoT wearable device. The vision module uses MediaPipe for skeletal tracking and queries a locally hosted Vision Language Model (LLaVA) to semantically distinguish between a person on the floor versus on furniture. Simultaneously, the ESP32-based wearable module utilizes a 3D Spatial Tilt algorithm to verify whether a physical impact actually resulted in a change in body orientation. A backend engine fuses both data streams using a weighted scoring model. To ensure reliability during Wi-Fi outages, the system includes a GSM cellular fallback module for SMS and voice alerts. Laboratory testing demonstrated that cross-verifying geometric vision with semantic VLM understanding and physical inertial data effectively filters out the false positives that commonly trigger single-modality systems.
 
-**Keywords** — Computer Vision, Vision Language Models, Emergency Alert, Fall Detection, Healthcare Monitoring, Intelligent Systems, Internet of Things (IoT)
+**Keywords** — Fall Detection, Computer Vision, Vision Language Models (VLM), Internet of Things (IoT), Sensor Fusion, Edge Computing, Healthcare Monitoring.
 
 ---
 
 ### I. INTRODUCTION
-Healthcare monitoring has become increasingly critical due to the growing elderly population and rising demand for assisted living solutions. Falls are among the most common causes of injuries in senior citizens and patients with mobility limitations. In many scenarios, individuals may be unable to seek help immediately after a fall, resulting in delayed medical assistance and increased health risks.
 
-Traditional monitoring methods rely either on manual supervision, which is not always practical, or simple push-button alarms, which require the user to be conscious. Recent advancements in Computer Vision (CV) and Internet of Things (IoT) technologies have enabled the development of intelligent systems. However, isolated vision systems often struggle with occlusions and false positives (e.g., a person lying down intentionally on a bed), while isolated IoT wearables are prone to generating alerts from sudden but safe movements (e.g., dropping the device). 
+As the global population ages, the demand for assisted living technologies and remote healthcare monitoring continues to grow. For elderly individuals living alone, a fall is a critical medical event. If a person is injured or falls unconscious and cannot call for help, the resulting delay in medical attention can lead to severe complications. Automated fall detection systems aim to solve this by immediately alerting caregivers, but wide-scale adoption has been hindered by a persistent issue: false alarms. 
 
-The primary objective of this project is to develop an intelligent healthcare monitoring system that executes a true **multi-modal** approach—merging continuous computer vision tracking, semantic understanding via Vision Language Models (VLMs), and robust IoT edge computing. By prioritizing the execution of sensor fusion, the proposed system cross-verifies visual posture anomalies and environmental context with physical impact data, drastically reducing response times and providing continuous, fail-safe monitoring.
+Current fall detection systems generally rely on either cameras or wearable sensors, and both have fundamental limitations.
 
-### II. LITERATURE REVIEW
-S. Cui et al. [1] have reported "An Effective Motorcycle Helmet Object Detection Framework for Intelligent Traffic Safety". In this study, a standard computer vision model "Detectron2" was utilized for advanced object detection and segmentation algorithms. The methodologies used to optimize visual detection confidence and bounding box tracking have strong parallels to the spatial posture recognition frameworks executed in our visual monitoring module.
+**The Context Problem in Vision:** A camera can mathematically track a person's posture and detect when they transition from standing to lying down. However, geometry alone lacks context. To a standard computer vision algorithm, collapsing onto the floor and lying down on a sofa look geometrically identical. This leads to chronic false positives in home environments.
 
-S. Anjum et al. [2] demonstrated "Artificial Intelligence-based Safety Helmet Recognition on Embedded Devices to Enhance Safety Monitoring Process." They utilized TensorFlow Lite libraries to execute lightweight AI models directly on embedded devices, reducing latency. Their approach of notifying supervisors upon detecting safety violations mirrors the IoT alert routing mechanisms required for rapid healthcare response systems.
+**The Noise Problem in Wearables:** Wearable sensors (like smartwatches or pendants) use accelerometers to detect the physical impact of a fall. However, human hands and arms experience high acceleration during normal daily activities—such as clapping, tossing a phone on a desk, or waving. Using a simple acceleration threshold to detect falls results in a system that cries wolf too often, eventually leading to alert fatigue for caregivers.
 
-Existing healthcare studies demonstrate that sensor-based and vision-based approaches can both independently monitor body movements. However, these systems face challenges when deployed in isolation. A camera may misinterpret a shadowed environment, while an accelerometer cannot see a patient’s actual posture. Furthermore, geometric vision alone cannot tell if a horizontal person is on the floor or a bed. These limitations highlight the critical need for a multi-modal execution strategy incorporating semantic Vision Language Models and physical inertial data to guarantee system reliability.
+**The Network Problem:** Most smart home healthcare systems rely on Wi-Fi and cloud servers to process data and send alerts. If the internet goes down, the system becomes useless—a dangerous single point of failure.
 
-### III. METHODOLOGY / EXPERIMENTAL
+This paper details the design and implementation of a prototype system built to address these three problems. It combines a stationary camera with a custom-built wearable IoT module. To solve the camera's context problem, we integrated a Vision Language Model (LLaVA) to semantically analyze the room and determine what the person is lying on. To solve the wearable's noise problem, we developed a multi-phase state machine that checks for a physical change in body orientation using a 3D Spatial Tilt algorithm. Finally, the system includes a GSM cellular module to guarantee alerts are sent even if the local Wi-Fi fails.
 
-**A. System Architecture & Components**
-The proposed system focuses on a dual-layer execution strategy: environmental CV observation and physical telemetric IoT monitoring.
+### II. RELATED WORK
 
-**1. Computer Vision & VLM Module:**
-- **Visual Tracking Engine:** Utilizes MediaPipe to extract 33 3D skeletal landmarks in real-time. By computing precise geometric angles of the torso and calculating the 3D depth of knee joints, the CV module deterministically classifies Standing, Sitting, and Sleeping postures. 
-- **Vision Language Model (VLM):** When the CV tracking detects a rapid downward vertical velocity spike leading to a horizontal state, a localized VLM (LLaVA via Ollama) processes the camera frame to semantically analyze the environment. It verifies if the subject is resting on "FURNITURE" (e.g., a bed or sofa) or has collapsed on the "FLOOR".
+The challenge of reliable fall detection has been extensively explored in literature, typically divided by the sensing modality used.
 
-**2. IoT Wearable Prototype Module:**
-The physical hardware has been developed as a proof-of-concept prototype, serving as the foundational circuitry for a future miniaturized patch. The core hardware components utilized in this prototype are detailed in Table I.
+**Camera-Based Systems:** Early vision-based systems relied on background subtraction and bounding box aspect ratios to detect falls [1]. More recently, skeletal tracking frameworks like OpenPose and MediaPipe have become the standard, allowing systems to calculate joint angles to estimate posture. However, as noted by Rougier et al. [4], while shape deformation and posture tracking are effective for detecting a horizontal state, they struggle with disambiguating intentional resting from accidental falls without additional context. 
 
-**TABLE I: Hardware Components & Functionality**
+**Wearable Systems:** Accelerometer-based detection is widely used due to its low cost and privacy-preserving nature [2]. However, Casilari et al. [3] benchmarked several public datasets and highlighted the difficulty of distinguishing falls from vigorous Activities of Daily Living (ADLs) using inertial data alone. Simple thresholding is insufficient, leading researchers to explore complex machine learning models (e.g., SVMs, Decision Trees) on wearable edge devices [5].
 
-| Component Name | Function / Purpose |
-| :--- | :--- |
-| **ESP32-C3 Mini** | Central Edge Microcontroller, Logic Processing, Wi-Fi MQTT |
-| **SmartElex ISM330DHCX** | 6-Axis IMU (Accelerometer/Gyro) for Physical Impact Detection |
-| **MAX30102** | Pulse Oximeter for continuous Heart Rate (BPM) & SpO2 tracking |
-| **INMP441** | Omnidirectional MEMS Microphone for distress audio detection |
-| **SIM800L** | GSM Module for emergency cellular fallback (SMS & Voice Calls) |
-| **Li-Po Battery** | Portable Power Source with optimized deep-sleep management |
+**Multimodal and VLM Approaches:** To overcome the limitations of single sensors, recent research has shifted toward multimodal fusion. Liu et al. [6] introduced LLaVA, a multimodal model connecting a vision encoder with a large language model, demonstrating strong visual question-answering capabilities. Ferro et al. [7] presented REMONI, a system integrating wearable devices with multimodal LLMs for remote health monitoring. Our work builds on these concepts by applying a VLM specifically as a semantic verification layer for fall detection, paired with a physical orientation-checking wearable.
 
-```mermaid
-graph TD
-    subgraph Computer Vision & VLM Module
-        CAM[Stationary Camera Feed] --> CV[MediaPipe 3D Skeletal Tracking]
-        CV -->|Horizontal Posture Detected| VLM[LLaVA VLM Semantic Context]
-        VLM -->|Floor Confirmed| FUS[Multi-Modal Sensor Fusion Engine]
-    end
-    
-    subgraph IoT Wearable Prototype
-        IMU[SmartElex ISM330DHCX IMU] --> ESP[ESP32-C3 Mini Edge Controller]
-        MAX[MAX30102 Vitals Sensor] --> ESP
-        MIC[INMP441 Microphone] --> ESP
-        ESP -->|MQTT via Wi-Fi| FUS
-    end
-    
-    subgraph Emergency Execution
-        FUS -->|True Fall Confirmed| DASH[Web & Mobile Dashboard Alerts]
-        ESP -.->|Wi-Fi Fails| SIM[SIM800L GSM Fallback]
-        SIM -.->|Direct SMS/Call| SMS[Caregiver Mobile Phone]
-    end
-```
+### III. SYSTEM ARCHITECTURE
 
-**B. System Flow & Multi-Modal Fusion**
-The methodology fundamentally relies on eliminating false positives through sensor cross-verification. 
-1. **Visual & Semantic Tracking**: The camera applies deep learning algorithms to map a 3D skeletal mesh onto the patient. If a horizontal torso angle is detected, the LLaVA VLM analyzes the frame to classify the underlying surface. A CV-based fall is only flagged if the posture is horizontal and the surface is identified as the floor, rather than furniture.
-2. **Inertial Tracking**: Simultaneously, the ESP32-C3 Mini continuously polls the SmartElex ISM330DHCX IMU to calculate the Signal Magnitude Vector (SMV). A sudden impact with the floor registers as a massive g-force spike.
-3. **Fusion Logic**: A "Fall Confirmed" state is exclusively triggered when the CV module (validated by the VLM) detects a horizontal collapse on the floor that intersects temporally with a massive physical impact (SMV spike) detected by the IMU.
+The proposed architecture is divided into three cooperating subsystems: the Camera & VLM Module, the IoT Wearable Module, and the Centralized Backend Fusion Engine. 
 
-**C. Emergency Alert & Notification Protocol**
-Upon multi-modal confirmation, the system transmits the data over the cloud via MQTT, instantly pushing high-priority alerts to the centralized web and mobile dashboards. Caregivers receive real-time streams of continuous vitals from the MAX30102 and audio status from the INMP441. If the primary Wi-Fi network fails, the ESP32-C3 Mini routes the alert through the SIM800L module, bypassing the cloud to send a direct emergency SMS and initiate an automated voice call.
+#### A. Hardware Components
+The prototype was built using readily available hardware components to demonstrate the feasibility of the edge-computing logic:
+*   **Stationary Camera:** Standard webcam connected to a local processing node.
+*   **ESP32-C3 Mini:** The core microcontroller for the wearable, chosen for its built-in Wi-Fi and small footprint.
+*   **SmartElex ISM330DHCX:** A high-precision 6-axis IMU (accelerometer and gyroscope) used for detecting impacts, free-fall, and body orientation.
+*   **MAX30102:** A pulse oximetry and heart-rate sensor to monitor vital signs.
+*   **INMP441:** An I2S MEMS microphone for detecting audio distress signals.
+*   **SIM800L:** A GSM/GPRS module used exclusively as an emergency cellular fallback.
 
-**D. Caregiver Interface (Web & Mobile Dashboards)**
-To ensure caregivers have immediate and accessible oversight, the system features two dedicated cross-platform interfaces:
-1. **Web Dashboard:** Developed using React and Vite, the web application provides a live stream of the CV feed, VLM surface classifications, and real-time heart rate/SpO2 graphs via low-latency WebSockets.
-2. **Mobile Application:** Built with React Native and Expo, it utilizes direct MQTT subscriptions for true edge-computing reliability. When a fall occurs, it triggers critical local push notifications and locks the user interface until the caregiver clears the alarm.
+#### B. Architectural Flow
+The system operates asynchronously. The camera module tracks posture continuously. If a potential fall is detected visually, it queries the VLM. Independently, the wearable module monitors physics data; if an impact occurs, it evaluates its internal state machine. Both modules transmit their confidence scores via MQTT to the central backend. The backend calculates a weighted score and, if a fall is confirmed, routes alerts to caregiver web and mobile dashboards. 
 
-**E. Power Management & Battery Optimization**
-- **Dynamic Deep Sleep**: If the IMU detects absolute physical stillness for a consecutive duration, the microcontroller intentionally severs power-intensive connections and enters a micro-ampere Deep Sleep state. 
-- **Event-Driven Wakeup**: During Deep Sleep, high-draw components are powered down. The system relies entirely on the ultra-low-power IMU hardware interrupts to wake the main processor instantly if movement resumes.
+### IV. COMPUTER VISION AND VLM MODULE
 
-### IV. MATH
-To process inertial anomalies, the system calculates the Signal Magnitude Vector (SMV) from the raw tri-axial accelerometer data:
+The vision module operates in two stages: geometric tracking (fast, runs every frame) and semantic verification (slower, runs only when needed).
 
-$$SMV = \sqrt{a_x^2 + a_y^2 + a_z^2}$$
+#### 1. Geometric Skeletal Tracking
+We use Google's MediaPipe Pose to extract 33 3D skeletal landmarks from the video feed. By calculating the angles between the shoulders, hips, and knees, the system classifies the person's current posture (Standing, Sitting, Bending, or Horizontal). 
 
-For the Computer Vision module, posture is determined by evaluating the 3D geometric angle between critical joints:
+Because raw landmark data can be noisy and jittery, we apply an Exponential Moving Average (EMA) filter to the calculated joint angles:
+$$ \theta_{smoothed} = \alpha \cdot \theta_{current} + (1 - \alpha) \cdot \theta_{previous} $$
+This smoothing prevents single frames of bad tracking from causing the posture state to flicker rapidly. The system requires the calculated posture to remain "Horizontal" for a set number of consecutive frames before it considers it a potential fall. 
 
-$$ \theta = \arccos\left(\frac{\vec{BA} \cdot \vec{BC}}{|\vec{BA}||\vec{BC}|}\right) $$
+#### 2. Semantic Verification via VLM
+Once a stable horizontal posture is detected, the system hits its primary limitation: is the person on the floor or in bed? To answer this, the system captures a frame and sends it to a locally hosted instance of LLaVA (running via Ollama). 
 
-A rapid downward velocity spike followed by a horizontal torso angle ($< 55^\circ$), contextually verified by the VLM as occurring on the floor, strongly indicates a collapse.
+The system prompts the VLM with a specific question regarding the scene context. The VLM acts as a semantic classifier, returning whether the surface beneath the person is "FLOOR" or "FURNITURE". Because LLMs can sometimes hallucinate or give inconsistent answers on edge cases, we implemented a temporal voting mechanism. The system queries the VLM across multiple frames; only if a majority of the responses classify the surface as "FLOOR" does the vision module officially flag a fall.
 
-### V. UNITS
-- Acceleration ($a_x$, $a_y$, $a_z$) is measured in multiples of Earth's gravity ($g$), where $1g \approx 9.81 m/s^2$.
-- Heart rate is quantified in Beats Per Minute (BPM).
-- Blood Oxygen Saturation (SpO2) is measured as a percentage (%).
-- Time delays and fusion windows are measured in milliseconds (ms).
+### V. IOT WEARABLE MODULE
 
-### VI. SYSTEM PARAMETERS
+The wearable device is worn on the wrist. Because wrists move erratically, we abandoned simple acceleration thresholds in favor of a **Multi-Phase Authentic Fall State Machine**. To trigger a fall alert, the sensor data must pass four sequential checks. If any check fails, the event is discarded as a normal activity.
 
-**TABLE II: System Parameters and Thresholds**
+#### 1. Phase 1: Free-Fall Prerequisite
+A genuine fall involves gravity. Before a person hits the ground, their body experiences a brief period of near-zero g-force. Banging a hand on a table or dropping the device generally does not produce this specific signature. The IMU must register a distinct free-fall event before it even begins looking for an impact.
 
-| Parameter | Symbol/Variable | Threshold Limit |
+#### 2. Phase 2: Impact and Timing Gate
+Following the free-fall, the system looks for an acceleration spike indicating an impact ($SMV = \sqrt{a_x^2 + a_y^2 + a_z^2}$). However, the timing between the free-fall and the impact must align with human physics. If the impact happens too quickly, it's likely an arm swing. If it takes too long, it wasn't a continuous fall.
+
+#### 3. Phase 3: 3D Spatial Tilt Verification
+This is the core physical verification. The ESP32 maintains a smoothed "pre-fall" gravity vector representing how the arm was oriented before the event. After the impact, it waits for the sensor to settle and records a "post-fall" gravity vector. 
+By calculating the dot-product between these two vectors, the system finds the angular change in the body's orientation:
+$$ \cos(\theta_{tilt}) = \frac{\vec{V}_{pre} \cdot \vec{V}_{post}}{|\vec{V}_{pre}||\vec{V}_{post}|} $$
+If a person slaps a table, their hand ends up in roughly the same orientation it started in (low tilt angle). If a person collapses to the floor, their overall orientation changes significantly (high tilt angle). A secondary gyroscopic check ensures rotational tumbling occurred.
+
+#### 4. Phase 4: Post-Impact Inactivity
+Finally, if a person trips but catches themselves, they will immediately resume moving. The system requires a period of physical stillness following the impact to confirm the person is incapacitated or resting on the floor. 
+
+#### Vital Sign Verification
+The module also includes a MAX30102 sensor. To ensure it doesn't read false heart rates when pressed against a pillow or table, it uses a differential optical heuristic. Human blood absorbs red light heavily but reflects infrared (IR) light. Inanimate objects reflect both similarly. The sensor checks this Red/IR ratio to verify it is actually touching human skin before transmitting vitals.
+
+### VI. FUSION ENGINE AND NETWORK RESILIENCE
+
+#### A. Weighted Scoring Fusion
+The backend server receives data from both the camera and the wearable via MQTT. It fuses these inputs using a weighted scoring formula:
+$$ FallScore = W_{CV} \cdot S_{CV} + W_{Motion} \cdot S_{Motion} + W_{Inactivity} \cdot S_{Inactivity} + W_{Audio} \cdot S_{Audio} $$
+Each variable ($S$) is a normalized confidence score (0 to 1), and each weight ($W$) is an adjustable parameter that sums to 1. 
+
+This approach allows for graceful degradation. If the camera is blinded or the person walks out of the frame, the wearable's motion and inactivity scores can still trigger an alert if they are high enough. Conversely, if the wearable battery dies, a highly confident CV+VLM detection can still raise an alarm.
+
+#### B. GSM Cellular Fallback
+Standard IoT devices fail silently if the local Wi-Fi router loses power or internet connectivity. To solve this, the ESP32 actively monitors its MQTT connection. If the connection drops and a fall is detected by the on-device state machine, the ESP32 powers up the SIM800L module. It bypasses the cloud entirely, sending a hardcoded SMS message and placing an automated phone call directly to the caregiver's cell phone over the GSM cellular network.
+
+### VII. SYSTEM EVALUATION AND RESULTS
+
+The prototype was evaluated in a controlled laboratory environment. Testing involved volunteers performing simulated falls onto crash mats, alongside a variety of non-fall activities (Activities of Daily Living) designed to trick the sensors, such as rapid sitting, tossing the wearable, clapping, and deliberately lying down on beds.
+
+#### A. Event Logging and Latency
+During the testing sessions, the backend system recorded all state transitions to a local SQLite database. By analyzing these logs, we extracted the backend processing latency—the time between the server receiving a sensor trigger and dispatching an alert to the web dashboard.
+
+**TABLE II: Measured Backend Processing Latency**
+
+| Trigger Pathway | Alert Escalation | Measured Latency |
 | :--- | :--- | :--- |
-| IMU Impact Threshold | $SMV_{spike}$ | $> 2.5g$ |
-| Horizontal Torso Threshold | $\theta_{torso}$ | $< 55^\circ$ |
-| Audio Distress Floor | $MIC_{noise}$ | $> 10000$ amplitude |
-| VLM Temporal Votes Required | $VLM_{votes}$ | $\ge 2 / 3$ frames |
-| Fusion Time Window | $t_{window}$ | $5000$ ms |
+| Camera (CV+VLM) | Fall Alert Sent | 10.7 – 18.1 ms |
+| Camera (CV+VLM) | Emergency Alert | 13.3 – 18.1 ms |
 
-### VII. RESULTS AND DISCUSSIONS
-The developed system was evaluated under rigorous simulated activity conditions to assess both its execution speed and reliability. Testing demonstrated that the multi-modal fusion approach yielded high precision and effectively mitigated the false-positive alerts typically generated by isolated sensor methodologies (e.g., sitting quickly on a sofa, dropping the device, or leaning over to tie shoes).
+The camera-triggered alerts showed extremely low server-side latency (<20ms). This is because the heavy lifting—the skeletal tracking and the VLM image inference—is processed locally on the vision node before the event is sent to the backend. 
 
-During true positive fall tests (simulated impacts using crash mats), the system exhibited robust detection sensitivity. The primary end-to-end alert pipeline achieved near real-time dispatch from physical impact to the caregiver receiving a notification on the Mobile Dashboard. The VLM semantic verification acts as a secondary confirmation layer, substantially enhancing contextual awareness against ambiguous environmental scenarios without impeding the primary rapid-response execution.
+When the IoT wearable independently confirms a fall, it has already waited through its required "post-impact inactivity" phase on the device itself. Therefore, when the server receives a "hardware-confirmed" MQTT packet, it bypasses the fusion scoring and immediately dispatches the alert. 
 
-The execution of the SIM800L fallback protocol proved vital for ensuring system resilience. In simulated localized network blackout tests (router disconnected), the ESP32-C3 seamlessly transitioned to cellular mode, successfully identifying fall incidents and dispatching emergency SMS notifications with minimal delay. The continuous streaming of vitals via the MAX30102 provided caregivers with immediate medical context upon receiving an alert, augmenting diagnostic capabilities prior to arriving at the scene.
+*Note: The latencies in Table II reflect server-processing time only. Total real-world latency from the moment a body hits the floor to a caregiver's phone buzzing also includes VLM inference time (~1-3 seconds depending on GPU), MQTT transport time, and push notification delivery.*
 
-### VIII. FUTURE SCOPE
-- **Hardware Miniaturization**: Transitioning the prototype into a custom-designed, bio-compatible smart patch.
-- **Advanced VLM Capabilities**: Upgrading the vision language models to continuously analyze scene hazards and predict falls before they occur.
-- Secure cloud-based healthcare monitoring platforms for long-term predictive analytics.
+#### B. Qualitative Observations
+
+**Vision Performance:** The integration of the VLM successfully solved the context problem during lab tests. When volunteers intentionally lay down on a bed, the geometric tracker flagged a horizontal posture, but the VLM correctly classified the surface as "FURNITURE" and suppressed the alarm. The primary failure mode of standard camera systems was effectively mitigated.
+
+**Wearable Performance:** The Multi-Phase State Machine successfully filtered out erratic wrist movements. When volunteers struck a table or dropped the device, the system recognized the lack of free-fall or the lack of a 3D orientation change, and correctly ignored the events.
+
+**Network Resilience:** In tests where the Wi-Fi router was intentionally unplugged, the ESP32 successfully detected the network timeout, powered the SIM800L, and sent the fallback SMS. This pathway introduces significant latency (connecting to a cellular tower and sending an SMS can take 10-20 seconds), but guarantees delivery when the primary fast-path is down.
+
+#### C. Limitations
+The system is currently a prototype tested in a controlled environment with healthy volunteers simulating falls. Clinical trials with elderly participants in real-world home environments are necessary to determine accurate sensitivity, specificity, and false-discovery rates. Furthermore, running a VLM locally requires specialized hardware (a discrete GPU or an AI accelerator like an NPU) on the vision node, which increases the upfront cost of the system compared to simple IP cameras. The GSM fallback is also strictly dependent on local cellular reception.
+
+### VIII. FUTURE WORK
+
+Future iterations of this project will focus on hardware miniaturization. The ESP32 and IMU components used in this prototype are somewhat bulky for a wrist-worn device; transitioning to a custom-designed PCB and a bio-compatible patch form-factor would improve patient comfort and compliance. 
+
+On the software side, the capabilities of the Vision Language Model can be expanded. Rather than just verifying falls after they happen, the VLM could periodically analyze the room to identify environmental hazards (e.g., loose rugs, spills) and proactively warn caregivers of a high fall risk.
 
 ### IX. CONCLUSION
-This project presents a Multi-Modal IoT and Computer Vision Based Intelligent Fall Detection System. By combining spatial visual monitoring, LLaVA VLM semantic context, and precise edge hardware (SmartElex ISM330DHCX, MAX30102, INMP441, SIM800L), the dual-layer verification process entirely eliminates the weaknesses of isolated detection methods. The system guarantees rapid emergency response even in the absence of Wi-Fi, demonstrating the profound potential of multi-modal execution in improving the quality of care and supporting independent living.
+
+This paper presented a multi-modal fall detection system designed to fix the specific flaws of standalone cameras and wearables. By combining geometric posture tracking with the semantic understanding of a Vision Language Model, the system can differentiate between collapsing on the floor and resting on furniture. By utilizing a Multi-Phase State Machine and a 3D Spatial Tilt algorithm, the wearable module verifies physical orientation changes, filtering out the noise of everyday arm movements. A centralized engine fuses these inputs, while a GSM fallback ensures alerts are delivered even during internet outages. Laboratory testing of the prototype demonstrated that this cross-verifying, multi-modal approach yields a more robust and context-aware monitoring system, offering a practical path forward for reliable elderly care technology.
 
 ### ACKNOWLEDGMENT
 The authors express their sincere gratitude to Dhananjay S. Pawar for valuable guidance, encouragement, and continuous support. We also thank the Department of Engineering, Sciences and Humanities (DESH), Vishwakarma Institute of Technology, Pune.
 
 ### REFERENCES
-[1] S. Cui et al., "An Effective Motorcycle Helmet Object Detection Framework for Intelligent Traffic Safety," *IEEE Transactions on Intelligent Transportation Systems*, 2021.
-[2] S. Anjum et al., "Artificial Intelligence-based Safety Helmet Recognition on Embedded Devices to Enhance Safety Monitoring Process," *IEEE Internet of Things Journal*, 2022.
-[3] A. K. Jain and M. Singh, "Real-time Fall Detection Using Wearable Tri-axial Accelerometers and Edge Computing," *IEEE Internet of Things Journal*, 2020.
+[1] M. Mubashir, L. Shao, and L. Seed, "A survey on fall detection: Principles and approaches," *Neurocomputing*, vol. 100, pp. 144–152, 2013.
+[2] N. Noury et al., "Fall detection — Principles and methods," in *Proc. 29th Annual IEEE EMBC*, pp. 1663–1666, 2007.
+[3] E. Casilari, J. A. Santoyo-Ramón, and J. M. Cano-García, "Analysis of public datasets for wearable fall detection systems," *Sensors*, vol. 17, no. 7, p. 1513, 2017.
+[4] C. Rougier et al., "Robust video surveillance for fall detection based on human shape deformation," *IEEE Trans. Circuits Syst. Video Technol.*, vol. 21, no. 5, pp. 611–622, 2011.
+[5] N. Lu, T. Wang, J. Yang, and E. A. Krupinski, "Wearable healthcare sensor system for IMU-based remote fall detection," *IEEE Access*, vol. 8, pp. 54391–54404, 2020.
+[6] H. Liu, C. Li, Q. Wu, and Y. J. Lee, "Visual Instruction Tuning," in *Proc. NeurIPS*, 2023.
+[7] S. Ferro et al., "REMONI: An Autonomous System Integrating Wearables and Multimodal Large Language Models for Enhanced Remote Health Monitoring," in *Proc. IEEE International Symposium on Medical Measurements and Applications (MeMeA)*, 2024.

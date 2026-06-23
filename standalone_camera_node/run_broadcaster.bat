@@ -44,9 +44,11 @@ start "CV Stream Server" cmd /c "call venv\Scripts\activate && set CAMERA_SOURCE
 
 echo ==============================================================
 echo Launching Ngrok Tunnel on port 8001...
-echo [✓] Custom Domain: crouch-trapped-stock.ngrok-free.dev
+echo [✓] Adding new Auth Token...
+ngrok config add-authtoken 3FMINhO7AP9PeMvKtIPA06jKmp8_27av9c1aso9qkLpmwyCHD
+echo [✓] Custom Domain: empathy-twice-greasily.ngrok-free.dev
 echo.
 :: Run ngrok in this window using the specific domain
-ngrok http --domain=crouch-trapped-stock.ngrok-free.dev 127.0.0.1:8001
+ngrok http --domain=empathy-twice-greasily.ngrok-free.dev 127.0.0.1:8001
 
 pause

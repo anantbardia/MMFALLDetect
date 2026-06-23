@@ -98,8 +98,11 @@ def video_feed():
 def index():
     html_content = """
     <html>
-      <body style="margin:0;padding:0;background-color:black;display:flex;justify-content:center;align-items:center;height:100vh;">
-        <img src="/video_feed" style="width:100%;max-height:100%;object-fit:contain;" />
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      </head>
+      <body style="margin:0;padding:0;background-color:black;width:100%;height:100%;overflow:hidden;display:flex;justify-content:center;align-items:center;">
+        <img src="/video_feed" style="width:100%;height:100%;object-fit:contain;" />
       </body>
     </html>
     """

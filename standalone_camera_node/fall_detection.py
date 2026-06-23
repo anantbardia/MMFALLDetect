@@ -151,7 +151,9 @@ class FallDetector:
 
                 hint = getattr(self, 'geometric_hint', 'UNKNOWN')
                 prompt = (
-                    f"Geometry: '{hint}'. Classify posture: STANDING, SITTING, BENDING, LYING_FLOOR, LYING_BED. Answer with exactly 1 word."
+                    f"Geometry: '{hint}'. VERY IMPORTANT: First, verify if there is a LIVE HUMAN visible in this image. "
+                    f"If there is NO human, or you only see random objects/furniture, answer with EXACTLY 1 word: NO_HUMAN. "
+                    f"If a human IS clearly visible, classify their posture: STANDING, SITTING, BENDING, LYING_FLOOR, LYING_BED. Answer with EXACTLY 1 word."
                 )
 
                 payload = {
@@ -170,7 +172,9 @@ class FallDetector:
                     result_text = response.json().get("response", "").strip().upper()
 
                     raw_prediction = "VLM: UNKNOWN"
-                    if "STANDING" in result_text:
+                    if "NO_HUMAN" in result_text or "NO HUMAN" in result_text:
+                        raw_prediction = "NO HUMAN VISIBLE"
+                    elif "STANDING" in result_text:
                         raw_prediction = "STANDING"
                     elif "SITTING" in result_text:
                         raw_prediction = "SITTING"

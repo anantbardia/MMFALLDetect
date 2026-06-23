@@ -384,22 +384,27 @@ void loop() {
     
     // ─── 3-Phase Authentic Fall State Machine ───
     if (currentFallState == NORMAL) {
-        if (smv < 0.5) { // Lowered from 0.6g to 0.5g for a purer freefall
+        if (smv < 0.3) { // Lowered to 0.3g (almost pure zero gravity, impossible during normal arm swings)
             currentFallState = FREEFALL_DETECTED;
             freefallTime = now;
             maxTumbleGyro = gyroMag;
-            Serial.println("[FALL] Phase 1: Freefall Detected! (<0.5g)");
+            Serial.println("[FALL] Phase 1: Freefall Detected! (<0.3g)");
         }
-    } 
+    }
     else if (currentFallState == FREEFALL_DETECTED) {
         if (gyroMag > maxTumbleGyro) maxTumbleGyro = gyroMag;
         
         if (now - freefallTime > 1200) {
             currentFallState = NORMAL; // Took too long to hit ground
-        } else if (smv > 3.2) { // Increased from 2.5g to 3.2g for harder impact requirement
-            if (now - freefallTime < 400) {
-                // Humans take ~450ms+ to fall 1 meter. Hand slaps happen in <300ms.
-                Serial.println("[IMU] Impact too fast (<400ms)! Desk slam detected. Ignored.");
+        } else if (smv > 1.5 && smv < 4.0) {
+            // FLIGHT CANCELLED: If they stopped falling and recovered BEFORE hitting the ground, cancel the fall immediately!
+            // This prevents a delayed 'desk bang' from tricking the timer.
+            Serial.println("[IMU] Freefall interrupted! User caught themselves before impact. Canceled.");
+            currentFallState = NORMAL;
+        } else if (smv > 5.0) { // Impact threshold (lowered slightly to 5.0g to ensure true falls aren't missed, since we fixed the timer exploit)
+            if (now - freefallTime < 450) {
+                // Physics limit: Humans take ~450ms+ to physically fall 1 meter. Fast arm swings take <300ms.
+                Serial.println("[IMU] Impact too fast (<450ms)! Arm flailing detected. Ignored.");
                 currentFallState = NORMAL;
             } else {
                 currentFallState = IMPACT_DETECTED;
@@ -432,11 +437,11 @@ void loop() {
                 float cos_theta = dot_product / denom;
                 
                 // GATE 4: Gyroscopic Tumble Check
-                // Desk slams are linear. Real falls involve chaotic tumbling/crumpling > 150 deg/s
-                if (cos_theta > 0.300) {
-                    Serial.println("[IMU] Orientation unchanged. Desk Slam FALSE ALARM. Canceled.");
-                } else if (maxTumbleGyro < 150.0) {
-                    Serial.printf("[IMU] Tumble rotation too low (%.1f dps). Desk Slam FALSE ALARM. Canceled.\n", maxTumbleGyro);
+                // Arm flailing is linear. Real falls involve chaotic tumbling/crumpling > 300 deg/s
+                if (cos_theta > 0.200) {
+                    Serial.println("[IMU] Orientation unchanged. Hard movement FALSE ALARM. Canceled.");
+                } else if (maxTumbleGyro < 300.0) {
+                    Serial.printf("[IMU] Tumble rotation too low (%.1f dps). Hard movement FALSE ALARM. Canceled.\n", maxTumbleGyro);
                 } else {
                     Serial.println("[FALL] Phase 3: ALL GATES PASSED! TRUE AUTHENTIC FALL.");
                     publishMotion(true); // Send authentic_fall

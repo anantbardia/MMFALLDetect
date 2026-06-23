@@ -19,7 +19,7 @@ class StateManager:
     
     # Valid transitions: current_state -> set of allowed next states
     VALID_TRANSITIONS = {
-        SystemState.NORMAL: {SystemState.POSSIBLE_FALL},
+        SystemState.NORMAL: {SystemState.POSSIBLE_FALL, SystemState.FALL_CONFIRMED},
         SystemState.POSSIBLE_FALL: {SystemState.NORMAL, SystemState.FALL_CONFIRMED},
         SystemState.FALL_CONFIRMED: {SystemState.MEDICAL_ALERT, SystemState.ALERT_SENT, SystemState.RECOVERY, SystemState.NORMAL},
         SystemState.MEDICAL_ALERT: {SystemState.ALERT_SENT, SystemState.RECOVERY, SystemState.NORMAL},
