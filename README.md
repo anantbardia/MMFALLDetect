@@ -231,6 +231,4 @@ run_camera.bat   # Starts CV stream + backend + ngrok/localtunnel
 | Mobile App | React Native, Expo 56, Firebase, Paho MQTT |
 | Notifications | Expo Push Notifications, Twilio (SMS) |
 
-## License
 
-MIT — see [mobile_app/LICENSE](mobile_app/LICENSE).
